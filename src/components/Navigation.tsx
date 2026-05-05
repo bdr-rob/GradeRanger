@@ -22,20 +22,24 @@ export default function Navigation({ onNavigate, currentSection }: NavigationPro
   ];
 
   return (
-    <nav className="bg-[#14314F] text-[#ABD2BE] shadow-lg sticky top-0 z-50">
+    <nav className="bg-[#407f90] text-[#051f54] shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <Link to="/" className="flex items-center shrink-0" aria-label="Grade Ranger home">
+        <div className="flex justify-between items-center gap-4 py-3 md:py-4 min-h-16">
+          <div className="flex items-center min-w-0 flex-1 md:flex-none">
+            <Link
+              to="/"
+              className="flex items-center shrink-0 max-w-[min(400px,100%)]"
+              aria-label="Grade Ranger home"
+            >
               <img
-                src="/grade-ranger-logo.svg"
+                src="/grade-ranger-logo.png"
                 alt="Grade Ranger"
-                className="h-9 w-auto max-w-[200px] object-contain"
+                className="w-full h-auto max-h-24 sm:max-h-32 md:max-h-48 lg:max-h-[400px] lg:w-[400px] object-contain"
               />
             </Link>
           </div>
           
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden md:flex items-center space-x-4 shrink-0">
             {onNavigate && navItems.map(item => (
               <button
                 key={item.id}
@@ -76,7 +80,8 @@ export default function Navigation({ onNavigate, currentSection }: NavigationPro
           </div>
 
           <button 
-            className="md:hidden"
+            type="button"
+            className="md:hidden shrink-0 self-center"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
