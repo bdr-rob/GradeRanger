@@ -26,7 +26,13 @@ export default function Navigation({ onNavigate, currentSection }: NavigationPro
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <Link to="/" className="text-2xl font-bold text-[#47682d]">⭐ Grade Ranger</Link>
+            <Link to="/" className="flex items-center shrink-0" aria-label="Grade Ranger home">
+              <img
+                src="/grade-ranger-logo.svg"
+                alt="Grade Ranger"
+                className="h-9 w-auto max-w-[200px] object-contain"
+              />
+            </Link>
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
