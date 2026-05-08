@@ -10,7 +10,7 @@ export default function Hero({ onScanClick, onDealFinderClick }: HeroProps) {
     <div className="relative bg-gradient-to-br from-[#14314F] via-[#47682d] to-[#14314F] text-white overflow-hidden">
       <div className="absolute inset-0 opacity-20">
         <img 
-          src="https://d64gsuwffb70l.cloudfront.net/68e70345fbf6f06bade6fa40_1759970172048_02cd4a94.webp"
+          src="/hero-background.webp"
           alt="Hero Background"
           className="w-full h-full object-cover"
         />
