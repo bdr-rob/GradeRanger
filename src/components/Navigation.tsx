@@ -57,8 +57,8 @@ export default function Navigation({ onNavigate, currentSection }: NavigationPro
             
             {user ? (
               <>
-                <Link to="/dashboard">
-                  <Button variant="ghost" className="text-[#ABD2BE]">Dashboard</Button>
+                <Link to="/portal">
+                  <Button variant="ghost" className="text-[#ABD2BE]">Portal</Button>
                 </Link>
                 <Link to="/watchlist">
                   <Button variant="ghost" className="text-[#ABD2BE]">Watchlist</Button>
@@ -105,7 +105,7 @@ export default function Navigation({ onNavigate, currentSection }: NavigationPro
           ))}
           {user ? (
             <>
-              <Link to="/dashboard" className="block px-4 py-3 hover:bg-[#47682d]/20">Dashboard</Link>
+              <Link to="/portal" className="block px-4 py-3 hover:bg-[#47682d]/20">Portal</Link>
               <Link to="/watchlist" className="block px-4 py-3 hover:bg-[#47682d]/20">Watchlist</Link>
               <button onClick={signOut} className="block w-full text-left px-4 py-3 hover:bg-[#47682d]/20">
                 Sign Out

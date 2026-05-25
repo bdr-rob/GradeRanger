@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { TrendingUp, Package, Search, Star, DollarSign, BarChart3 } from 'lucide-react';
 
 export default function MembersPortal() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('portfolio');
 
   const portfolioStats = {
@@ -33,6 +35,21 @@ export default function MembersPortal() {
   return (
     <div className="bg-white rounded-xl shadow-lg p-8">
       <h2 className="text-3xl font-bold text-[#14314F] mb-6">My Portal</h2>
+
+      {user && (
+        <div className="mb-6 rounded-lg border border-[#47682d]/40 bg-[#47682d]/10 px-4 py-3 text-sm text-[#14314F]">
+          <p className="font-semibold mb-1">Build your portfolio in the member workspace</p>
+          <p className="text-gray-700 mb-2">
+            Add cards, track value, and soon see grading decision tools—all in one place.
+          </p>
+          <Link
+            to="/portal"
+            className="inline-block font-semibold text-[#47682d] hover:underline"
+          >
+            Open your portal →
+          </Link>
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b overflow-x-auto">
         {[
@@ -92,10 +109,10 @@ export default function MembersPortal() {
 
           {/* Action Button */}
           <Link 
-            to="/user-dashboard"
+            to={user ? "/portal/portfolio" : "/login"}
             className="inline-block bg-[#47682d] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#47682d]/90 transition"
           >
-            Manage Portfolio →
+            {user ? 'Manage portfolio →' : 'Sign in to manage portfolio →'}
           </Link>
         </div>
       )}
@@ -159,6 +176,20 @@ export default function MembersPortal() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {activeTab === 'watchlist' && (
+        <div className="space-y-4">
+          <p className="text-gray-600">
+            Track cards you are watching for price drops or availability.
+          </p>
+          <Link
+            to={user ? '/watchlist' : '/login'}
+            className="inline-block bg-[#47682d] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#47682d]/90 transition"
+          >
+            {user ? 'Open watchlist →' : 'Sign in for watchlist →'}
+          </Link>
         </div>
       )}
     </div>

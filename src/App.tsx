@@ -17,6 +17,10 @@ import UserDashboard from "./pages/UserDashboard";
 import Profile from "./pages/Profile";
 import Watchlist from "./pages/Watchlist";
 import SavedSearches from "./pages/SavedSearches";
+import PortalAuthGate from "./components/portal/PortalAuthGate";
+import PortalHome from "./pages/portal/PortalHome";
+import PortalPortfolio from "./pages/portal/PortalPortfolio";
+import GradingDecisionsPage from "./pages/portal/GradingDecisionsPage";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +42,11 @@ const App = () => (
                   <UserDashboard />
                 </ProtectedRoute>
               } />
+              <Route path="/portal" element={<PortalAuthGate />}>
+                <Route index element={<PortalHome />} />
+                <Route path="portfolio" element={<PortalPortfolio />} />
+                <Route path="grading" element={<GradingDecisionsPage />} />
+              </Route>
               <Route path="/profile" element={
                 <ProtectedRoute>
                   <Profile />
@@ -53,9 +62,9 @@ const App = () => (
                   <SavedSearches />
                 </ProtectedRoute>
               } />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
               <Route path="*" element={<NotFound />} />
-              <Route path = "/privacy" element={<PrivacyPolicy/>} />
-              <Route path = "/terms" element ={<TermsOfService/>} />
             </Routes>
           </AuthProvider>
         </BrowserRouter>

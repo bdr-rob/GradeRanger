@@ -1,6 +1,6 @@
-import React from 'react';
-import PortfolioTracker from '@/components/PortfolioTracker';
+import { Navigate } from 'react-router-dom';
 
+/** Legacy route: portfolio now lives under the member portal. */
 export default function UserDashboard() {
-  return <PortfolioTracker />;
+  return <Navigate to="/portal/portfolio" replace />;
 }

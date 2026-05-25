@@ -24,14 +24,10 @@ class AnalyzeResponse(BaseModel):
 
 app = FastAPI(title="Grade Ranger Scanner API", version="0.1.0")
 
+# Dev-friendly CORS: allow any port on localhost / loopback (this project's Vite uses port 8080).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-    ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\]|\[::\])(:\d+)?",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

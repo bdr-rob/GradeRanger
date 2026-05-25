@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Mail, Lock, User, AlertCircle, CheckCircle } from 'lucide-react';
+import { describeAuthNetworkError } from '@/lib/supabaseAuthErrors';
 
 export default function Signup() {
   const [fullName, setFullName] = useState('');
@@ -52,8 +53,8 @@ export default function Signup() {
     try {
       await signUp(email, password, fullName);
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create account');
+    } catch (err: unknown) {
+      setError(describeAuthNetworkError(err));
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import Navigation from './Navigation';
 import Hero from './Hero';
 import Dashboard from './Dashboard';
@@ -12,8 +14,14 @@ import Footer from './Footer';
 
 export default function AppLayout() {
   const [currentSection, setCurrentSection] = useState('home');
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const handleNavigate = (section: string) => {
+    if (section === 'members' && user) {
+      navigate('/portal');
+      return;
+    }
     setCurrentSection(section);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

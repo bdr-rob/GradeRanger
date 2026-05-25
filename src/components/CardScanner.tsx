@@ -1,24 +1,50 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Camera, Upload } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Loader2, Camera, Upload, BookmarkPlus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { CardScanAnalysisData } from '@/types/cardScan';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { CardScanAnalysisData, CardScanSaveTarget } from '@/types/cardScan';
 import {
   analyzeCardRemote,
   getDemoAnalysis,
   getScannerApiBaseUrl,
 } from '@/lib/cardScanClient';
+import {
+  addLocalSavedScan,
+  getLocalSavedScans,
+  removeLocalSavedScan,
+} from '@/lib/savedLocalScans';
+import {
+  saveScanToPortfolio,
+  saveScanToWatchlist,
+} from '@/lib/saveCardScanRemote';
 
 export default function CardScanner() {
+  const { user } = useAuth();
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   /** Raw base64 without data URL prefix — sent to API */
   const [imageBase64Payload, setImageBase64Payload] = useState<string | null>(
     null,
   );
   const [scanning, setScanning] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<CardScanAnalysisData | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [saveTarget, setSaveTarget] = useState<CardScanSaveTarget>('device');
+  const [localScans, setLocalScans] = useState(() => getLocalSavedScans());
   const { toast } = useToast();
+
+  useEffect(() => {
+    setLocalScans(getLocalSavedScans());
+  }, []);
 
   const resetUpload = () => {
     setUploadedImage(null);
@@ -97,6 +123,79 @@ export default function CardScanner() {
     } finally {
       setScanning(false);
     }
+  };
+
+  const refreshLocalScans = () => setLocalScans(getLocalSavedScans());
+
+  const handleSaveScan = async () => {
+    if (!results) return;
+
+    if (saveTarget === 'device') {
+      setSaving(true);
+      try {
+        addLocalSavedScan({
+          analysis: results,
+          imageDataUrl: uploadedImage,
+        });
+        refreshLocalScans();
+        toast({
+          title: 'Saved on this device',
+          description:
+            'You can review it in the list below. Data stays in your browser.',
+        });
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : 'Could not save locally.';
+        toast({
+          title: 'Save failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: 'Sign in required',
+        description: 'Log in to save scans to your portfolio or watchlist.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (saveTarget === 'portfolio') {
+        const { error } = await saveScanToPortfolio(user.id, results);
+        if (error) throw error;
+        toast({
+          title: 'Saved to portfolio',
+          description: 'Open your portal to view and edit the item.',
+        });
+      } else {
+        const { error } = await saveScanToWatchlist(user.id, results);
+        if (error) throw error;
+        toast({
+          title: 'Saved to watchlist',
+          description: 'View it anytime under Watchlist in your account.',
+        });
+      }
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error ? e.message : 'Could not save. Please try again.';
+      toast({ title: 'Save failed', description: message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveLocal = (id: string) => {
+    removeLocalSavedScan(id);
+    refreshLocalScans();
+    toast({ title: 'Removed', description: 'Scan removed from this device.' });
   };
 
   return (
@@ -236,63 +335,31 @@ export default function CardScanner() {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span>Centering</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-200 rounded-full h-2">
+              <div className="space-y-3">
+                {(
+                  [
+                    ['Centering', results.centering],
+                    ['Corners', results.corners],
+                    ['Edges', results.edges],
+                    ['Surface', results.surface],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="grid grid-cols-[7rem_minmax(0,1fr)_2.75rem] gap-3 items-center"
+                  >
+                    <span className="text-gray-800 shrink-0">{label}</span>
+                    <div className="min-w-0 h-2 rounded-full bg-gray-200 overflow-hidden">
                       <div
-                        className="bg-[#47682d] h-2 rounded-full"
-                        style={{ width: `${results.centering}%` }}
+                        className="bg-[#47682d] h-full rounded-full max-w-full"
+                        style={{ width: `${value}%` }}
                       />
                     </div>
-                    <span className="font-bold text-[#47682d]">
-                      {results.centering}%
+                    <span className="font-bold text-[#47682d] text-right tabular-nums shrink-0">
+                      {value}%
                     </span>
                   </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Corners</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-[#47682d] h-2 rounded-full"
-                        style={{ width: `${results.corners}%` }}
-                      />
-                    </div>
-                    <span className="font-bold text-[#47682d]">
-                      {results.corners}%
-                    </span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Edges</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-[#47682d] h-2 rounded-full"
-                        style={{ width: `${results.edges}%` }}
-                      />
-                    </div>
-                    <span className="font-bold text-[#47682d]">
-                      {results.edges}%
-                    </span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Surface</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-[#47682d] h-2 rounded-full"
-                        style={{ width: `${results.surface}%` }}
-                      />
-                    </div>
-                    <span className="font-bold text-[#47682d]">
-                      {results.surface}%
-                    </span>
-                  </div>
-                </div>
+                ))}
               </div>
 
               <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 text-center">
@@ -355,10 +422,145 @@ export default function CardScanner() {
                     )}
                 </div>
               )}
+
+              <div className="rounded-lg border border-[#14314F]/20 bg-gray-50 p-4 space-y-3">
+                <p className="text-sm font-semibold text-[#14314F]">
+                  Save this scan
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                  <div className="flex-1 space-y-1.5">
+                    <label className="text-xs text-gray-600">Destination</label>
+                    <Select
+                      value={saveTarget}
+                      onValueChange={(v) =>
+                        setSaveTarget(v as CardScanSaveTarget)
+                      }
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Choose where to save" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="device">
+                          This device (browser)
+                        </SelectItem>
+                        <SelectItem value="portfolio" disabled={!user}>
+                          My portfolio (account)
+                        </SelectItem>
+                        <SelectItem value="watchlist" disabled={!user}>
+                          Watchlist (account)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSaveScan}
+                    disabled={saving}
+                    variant="outline"
+                    className="border-[#47682d] text-[#47682d] hover:bg-[#47682d]/10 shrink-0"
+                  >
+                    {saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <BookmarkPlus className="w-4 h-4 mr-2" />
+                        Save
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {!user && (
+                  <p className="text-xs text-gray-600">
+                    <Link
+                      to="/login"
+                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
+                    >
+                      Sign in
+                    </Link>{' '}
+                    to save to your portfolio or watchlist.{' '}
+                    <Link
+                      to="/portal"
+                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
+                    >
+                      Portal
+                    </Link>
+                  </p>
+                )}
+                {user && (
+                  <p className="text-xs text-gray-600">
+                    Portfolio and watchlist sync to your account (Supabase).{' '}
+                    <Link
+                      to="/portal"
+                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
+                    >
+                      Open portal
+                    </Link>
+                    {' · '}
+                    <Link
+                      to="/watchlist"
+                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
+                    >
+                      Watchlist
+                    </Link>
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {localScans.length > 0 && (
+        <div className="mt-10 border-t border-gray-200 pt-8">
+          <h3 className="text-lg font-semibold text-[#14314F] mb-2">
+            Saved on this device ({localScans.length})
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            These stay in your browser only. Clearing site data removes them.
+          </p>
+          <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {localScans.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex gap-3 items-start rounded-lg border border-gray-200 bg-gray-50 p-3"
+              >
+                {entry.imageDataUrl ? (
+                  <img
+                    src={entry.imageDataUrl}
+                    alt=""
+                    className="w-14 h-14 object-cover rounded-md shrink-0"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-md bg-gray-200 shrink-0 flex items-center justify-center text-xs text-gray-500 text-center px-1">
+                    No image
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="font-medium text-[#14314F]">
+                    PSA est. {entry.analysis.predictedGrade.PSA} ·{' '}
+                    {new Date(entry.savedAt).toLocaleString()}
+                  </p>
+                  <p className="text-gray-600 truncate">
+                    {entry.analysis.explanation ||
+                      entry.analysis.notes ||
+                      'Saved scan'}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => handleRemoveLocal(entry.id)}
+                  aria-label="Remove from this device"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

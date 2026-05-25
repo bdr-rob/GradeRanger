@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       description: "You've successfully signed in.",
     });
     
-    navigate('/dashboard');
+    navigate('/portal');
   };
 
   const signOut = async () => {
