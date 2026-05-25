@@ -234,6 +234,7 @@ export default function CardScanner() {
 
       <div className="grid md:grid-cols-2 gap-8">
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
           {(
             [
               {
@@ -249,7 +250,7 @@ export default function CardScanner() {
             ] as const
           ).map(({ side, label, image }) => (
             <div key={side} className="space-y-2">
-              <p className="text-sm font-semibold text-[#14314F]">
+              <p className="text-xl font-bold text-[#14314F]">
                 {label}{' '}
                 <span className="text-red-600" aria-hidden="true">
                   *
@@ -307,6 +308,8 @@ export default function CardScanner() {
               </div>
             </div>
           ))}
+
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <Button
