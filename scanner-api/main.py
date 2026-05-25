@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from analyzer import analyze_base64
+from analyzer import analyze_base64, analyze_card_pair
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 class AnalyzeBody(BaseModel):
     imageBase64: str = Field(..., min_length=8)
+    backImageBase64: str = Field(..., min_length=8)
 
 
 class AnalyzeResponse(BaseModel):
@@ -42,7 +43,7 @@ def health() -> Dict[str, bool]:
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(body: AnalyzeBody) -> AnalyzeResponse:
     try:
-        data = analyze_base64(body.imageBase64)
+        data = analyze_card_pair(body.imageBase64, body.backImageBase64)
         return AnalyzeResponse(success=True, data=data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

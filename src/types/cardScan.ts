@@ -1,6 +1,9 @@
 /** Request body for POST /analyze */
 export interface CardScanRequest {
+  /** Front of the card */
   imageBase64: string;
+  /** Back of the card (required) */
+  backImageBase64: string;
 }
 
 export interface PredictedGrades {
@@ -82,7 +85,10 @@ export interface SavedLocalScan {
   id: string;
   savedAt: string;
   analysis: CardScanAnalysisData;
+  /** Front preview */
   imageDataUrl?: string;
+  /** Back preview */
+  backImageDataUrl?: string;
 }
 
 

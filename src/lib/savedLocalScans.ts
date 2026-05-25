@@ -39,6 +39,7 @@ export function removeLocalSavedScan(id: string): void {
 export function addLocalSavedScan(input: {
   analysis: CardScanAnalysisData;
   imageDataUrl?: string | null;
+  backImageDataUrl?: string | null;
 }): SavedLocalScan {
   const scans = parseStored();
   const record: SavedLocalScan = {
@@ -46,6 +47,7 @@ export function addLocalSavedScan(input: {
     savedAt: new Date().toISOString(),
     analysis: input.analysis,
     imageDataUrl: input.imageDataUrl ?? undefined,
+    backImageDataUrl: input.backImageDataUrl ?? undefined,
   };
 
   const tryPersist = (r: SavedLocalScan) => {
@@ -61,7 +63,11 @@ export function addLocalSavedScan(input: {
       e instanceof DOMException &&
       (e.name === 'QuotaExceededError' || e.code === 22)
     ) {
-      const withoutImage: SavedLocalScan = { ...record, imageDataUrl: undefined };
+      const withoutImage: SavedLocalScan = {
+        ...record,
+        imageDataUrl: undefined,
+        backImageDataUrl: undefined,
+      };
       tryPersist(withoutImage);
       return withoutImage;
     }

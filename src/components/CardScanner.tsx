@@ -27,13 +27,16 @@ import {
   saveScanToWatchlist,
 } from '@/lib/saveCardScanRemote';
 
+type CardSide = 'front' | 'back';
+
 export default function CardScanner() {
   const { user } = useAuth();
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  /** Raw base64 without data URL prefix — sent to API */
-  const [imageBase64Payload, setImageBase64Payload] = useState<string | null>(
-    null,
-  );
+
+  const [frontImage, setFrontImage] = useState<string | null>(null);
+  const [backImage, setBackImage] = useState<string | null>(null);
+  const [frontBase64, setFrontBase64] = useState<string | null>(null);
+  const [backBase64, setBackBase64] = useState<string | null>(null);
+
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<CardScanAnalysisData | null>(null);
@@ -47,45 +50,63 @@ export default function CardScanner() {
   }, []);
 
   const resetUpload = () => {
-    setUploadedImage(null);
-    setImageBase64Payload(null);
+    setFrontImage(null);
+    setBackImage(null);
+    setFrontBase64(null);
+    setBackBase64(null);
     setResults(null);
     setIsDemoMode(false);
   };
 
-  const loadFile = useCallback((file: File) => {
+  const loadFile = useCallback((file: File, side: CardSide) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      setUploadedImage(dataUrl);
       const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-      setImageBase64Payload(raw);
+      if (side === 'front') {
+        setFrontImage(dataUrl);
+        setFrontBase64(raw);
+      } else {
+        setBackImage(dataUrl);
+        setBackBase64(raw);
+      }
       setResults(null);
       setIsDemoMode(false);
     };
     reader.readAsDataURL(file);
   }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) loadFile(file);
-    e.target.value = '';
-  };
+  const handleFileUpload =
+    (side: CardSide) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) loadFile(file, side);
+      e.target.value = '';
+    };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) loadFile(file);
-  };
+  const handleDrop =
+    (side: CardSide) => (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = e.dataTransfer.files?.[0];
+      if (file && file.type.startsWith('image/')) loadFile(file, side);
+    };
+
+  const bothImagesReady = Boolean(frontBase64 && backBase64);
 
   const runAnalysis = async () => {
-    if (!imageBase64Payload) return;
+    if (!frontBase64 || !backBase64) {
+      toast({
+        title: 'Both sides required',
+        description: 'Upload a front and back photo before analyzing.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setScanning(true);
     setResults(null);
@@ -105,7 +126,7 @@ export default function CardScanner() {
         return;
       }
 
-      const data = await analyzeCardRemote(imageBase64Payload);
+      const data = await analyzeCardRemote(frontBase64, backBase64);
       setResults(data);
       toast({
         title: 'Analysis complete',
@@ -135,7 +156,8 @@ export default function CardScanner() {
       try {
         addLocalSavedScan({
           analysis: results,
-          imageDataUrl: uploadedImage,
+          imageDataUrl: frontImage,
+          backImageDataUrl: backImage,
         });
         refreshLocalScans();
         toast({
@@ -205,63 +227,118 @@ export default function CardScanner() {
         <h2 className="text-3xl font-bold text-[#14314F]">AI Card Scanner</h2>
       </div>
 
+      <p className="text-sm text-gray-600 mb-6">
+        Upload clear photos of both the front and back of your card. Both sides
+        are required before analysis.
+      </p>
+
       <div className="grid md:grid-cols-2 gap-8">
-        <div>
-          <div
-            className="border-4 border-dashed border-[#47682d] rounded-lg p-8 text-center bg-gray-50 hover:bg-gray-100 transition"
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          >
-            {!uploadedImage ? (
-              <label className="cursor-pointer block">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-                <Upload className="w-16 h-16 mx-auto mb-4 text-[#47682d]" />
-                <p className="text-lg text-gray-700">
-                  Click to upload or drag and drop
-                </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  Supports JPG, PNG, HEIC
-                </p>
-              </label>
-            ) : (
-              <div>
-                <img
-                  src={uploadedImage}
-                  alt="Uploaded card"
-                  className="max-h-96 mx-auto rounded-lg shadow-md"
-                />
-                <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-center items-center">
-                  <Button
-                    type="button"
-                    onClick={runAnalysis}
-                    disabled={scanning}
-                    className="bg-[#47682d] hover:bg-[#47682d]/90 text-white"
-                  >
-                    {scanning ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Analyzing…
-                      </>
-                    ) : (
-                      'Analyze card'
-                    )}
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={resetUpload}
-                    className="text-[#47682d] hover:underline text-sm"
-                  >
-                    Upload different card
-                  </button>
-                </div>
+        <div className="space-y-4">
+          {(
+            [
+              {
+                side: 'front' as const,
+                label: 'Front',
+                image: frontImage,
+              },
+              {
+                side: 'back' as const,
+                label: 'Back',
+                image: backImage,
+              },
+            ] as const
+          ).map(({ side, label, image }) => (
+            <div key={side} className="space-y-2">
+              <p className="text-sm font-semibold text-[#14314F]">
+                {label}{' '}
+                <span className="text-red-600" aria-hidden="true">
+                  *
+                </span>
+                <span className="sr-only">(required)</span>
+              </p>
+              <div
+                className="border-4 border-dashed border-[#47682d] rounded-lg p-4 text-center bg-gray-50 hover:bg-gray-100 transition min-h-[12rem] flex flex-col justify-center"
+                onDragOver={handleDragOver}
+                onDrop={handleDrop(side)}
+              >
+                {!image ? (
+                  <label className="cursor-pointer block py-4">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileUpload(side)}
+                      aria-label={`Upload ${label.toLowerCase()} of card`}
+                    />
+                    <Upload className="w-10 h-10 mx-auto mb-2 text-[#47682d]" />
+                    <p className="text-sm text-gray-700">
+                      Click or drag {label.toLowerCase()} photo
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      JPG, PNG, HEIC
+                    </p>
+                  </label>
+                ) : (
+                  <div>
+                    <img
+                      src={image}
+                      alt={`${label} of card`}
+                      className="max-h-48 mx-auto rounded-lg shadow-md"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (side === 'front') {
+                          setFrontImage(null);
+                          setFrontBase64(null);
+                        } else {
+                          setBackImage(null);
+                          setBackBase64(null);
+                        }
+                        setResults(null);
+                        setIsDemoMode(false);
+                      }}
+                      className="mt-3 text-[#47682d] hover:underline text-xs"
+                    >
+                      Replace {label.toLowerCase()}
+                    </button>
+                  </div>
+                )}
               </div>
+            </div>
+          ))}
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Button
+              type="button"
+              onClick={runAnalysis}
+              disabled={scanning || !bothImagesReady}
+              className="bg-[#47682d] hover:bg-[#47682d]/90 text-white"
+            >
+              {scanning ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Analyzing…
+                </>
+              ) : (
+                'Analyze card'
+              )}
+            </Button>
+            {(frontImage || backImage) && (
+              <button
+                type="button"
+                onClick={resetUpload}
+                className="text-[#47682d] hover:underline text-sm self-center"
+              >
+                Clear both photos
+              </button>
             )}
           </div>
+          {!bothImagesReady && (frontImage || backImage) && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Add the {frontImage ? 'back' : 'front'} photo to continue.
+            </p>
+          )}
         </div>
 
         <div>
@@ -524,17 +601,30 @@ export default function CardScanner() {
                 key={entry.id}
                 className="flex gap-3 items-start rounded-lg border border-gray-200 bg-gray-50 p-3"
               >
-                {entry.imageDataUrl ? (
-                  <img
-                    src={entry.imageDataUrl}
-                    alt=""
-                    className="w-14 h-14 object-cover rounded-md shrink-0"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-md bg-gray-200 shrink-0 flex items-center justify-center text-xs text-gray-500 text-center px-1">
-                    No image
-                  </div>
-                )}
+                <div className="flex gap-1 shrink-0">
+                  {entry.imageDataUrl ? (
+                    <img
+                      src={entry.imageDataUrl}
+                      alt="Front"
+                      className="w-14 h-14 object-cover rounded-md"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
+                      No front
+                    </div>
+                  )}
+                  {entry.backImageDataUrl ? (
+                    <img
+                      src={entry.backImageDataUrl}
+                      alt="Back"
+                      className="w-14 h-14 object-cover rounded-md"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
+                      No back
+                    </div>
+                  )}
+                </div>
                 <div className="min-w-0 flex-1 text-sm">
                   <p className="font-medium text-[#14314F]">
                     PSA est. {entry.analysis.predictedGrade.PSA} ·{' '}

@@ -191,3 +191,46 @@ def analyze_base64(image_base64: str) -> Dict[str, Any]:
         "explanation": explanation,
         "warnings": warnings,
     }
+
+
+def analyze_card_pair(front_base64: str, back_base64: str) -> Dict[str, Any]:
+    """Analyze front and back; front drives centering/corners, worst-case edges/surface."""
+    front = analyze_base64(front_base64)
+    back = analyze_base64(back_base64)
+
+    merged = dict(front)
+    merged["edges"] = min(front["edges"], back["edges"])
+    merged["surface"] = min(front["surface"], back["surface"])
+    merged["corners"] = min(front["corners"], back["corners"])
+
+    comp = composite_grades(
+        merged["centering"],
+        merged["corners"],
+        merged["edges"],
+        merged["surface"],
+    )
+    psa = map_composite_to_psa(comp)
+    merged["predictedGrade"] = {
+        "PSA": psa,
+        "Beckett": round(min(10.0, psa + 0.5), 1),
+        "CGC": round(min(10.0, psa + 0.3), 1),
+    }
+    merged["confidence"] = int(max(55, min(95, round(comp * 0.85))))
+    merged["dealScore"] = round(max(1.0, min(5.0, 1.0 + (comp / 100.0) * 4.0)), 1)
+
+    warnings = list(merged.get("warnings") or [])
+    if back["surface"] < front["surface"] - 5:
+        warnings.append("Back surface looks weaker than the front — check for wear or print lines.")
+    if back["edges"] < front["edges"] - 5:
+        warnings.append("Back edges look weaker than the front.")
+    merged["warnings"] = warnings
+
+    merged["notes"] = (
+        "OpenCV heuristic estimate from front and back photos (centering, edges, corners, sharpness). "
+        "Not affiliated with PSA, BGS, or CGC."
+    )
+    merged["explanation"] = (
+        f"{front.get('explanation', '')} Back photo included for surface and edge checks."
+    ).strip()
+
+    return merged

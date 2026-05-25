@@ -29,7 +29,8 @@ export function getDemoAnalysis(): CardScanAnalysisData {
 }
 
 export async function analyzeCardRemote(
-  imageBase64NoPrefix: string,
+  frontImageBase64: string,
+  backImageBase64: string,
 ): Promise<CardScanAnalysisData> {
   const base = getScannerApiBaseUrl();
   if (!base) {
@@ -40,7 +41,10 @@ export async function analyzeCardRemote(
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageBase64: imageBase64NoPrefix }),
+    body: JSON.stringify({
+      imageBase64: frontImageBase64,
+      backImageBase64,
+    }),
   });
 
   const json = (await res.json()) as CardScanApiResponse & {
