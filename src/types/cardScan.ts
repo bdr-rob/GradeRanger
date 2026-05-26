@@ -41,6 +41,19 @@ export interface ProfitAnalysis {
   recommendation: "BUY" | "WATCH" | "PASS";
 }
 
+/** Persisted output of the 5-stage GradingDecisionEngine */
+export interface GradingDecision {
+  stage1Result: 'advance' | 'eliminated';
+  stage2Result: 'gem_mint' | 'strong_9' | 'fail';
+  stage3Zone: 'green' | 'yellow' | 'red';
+  route: 'PSA' | 'BGS' | 'SGC' | 'hold' | 'do_not_submit';
+  rawCost?: number;
+  allInCost?: number;
+  netProfit?: number;
+  finalChecklist: boolean;
+  decidedAt: string;
+}
+
 /** Shared shape for UI + scanner API (camelCase over the wire). */
 export interface CardScanAnalysisData {
   centering: number;
@@ -69,6 +82,9 @@ export interface CardScanAnalysisData {
 
   explanation?: string;
   warnings?: string[];
+
+  /** Saved after user completes the grading decision engine */
+  gradingDecision?: GradingDecision;
 }
 
 export interface CardScanApiResponse {

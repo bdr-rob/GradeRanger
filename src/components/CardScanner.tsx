@@ -11,7 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CardScanAnalysisData, CardScanSaveTarget } from '@/types/cardScan';
+import type {
+  CardScanAnalysisData,
+  CardScanSaveTarget,
+  GradingDecision,
+} from '@/types/cardScan';
 import {
   analyzeCardRemote,
   getDemoAnalysis,
@@ -21,11 +25,13 @@ import {
   addLocalSavedScan,
   getLocalSavedScans,
   removeLocalSavedScan,
+  updateLocalSavedScan,
 } from '@/lib/savedLocalScans';
 import {
   saveScanToPortfolio,
   saveScanToWatchlist,
 } from '@/lib/saveCardScanRemote';
+import GradingDecisionEngine from '@/components/GradingDecisionEngine';
 
 type CardSide = 'front' | 'back';
 
@@ -43,6 +49,9 @@ export default function CardScanner() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [saveTarget, setSaveTarget] = useState<CardScanSaveTarget>('device');
   const [localScans, setLocalScans] = useState(() => getLocalSavedScans());
+
+  const [activeScanId, setActiveScanId] = useState<string | null>(null);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -56,6 +65,7 @@ export default function CardScanner() {
     setBackBase64(null);
     setResults(null);
     setIsDemoMode(false);
+    setActiveScanId(null);
   };
 
   const loadFile = useCallback((file: File, side: CardSide) => {
@@ -111,6 +121,7 @@ export default function CardScanner() {
     setScanning(true);
     setResults(null);
     setIsDemoMode(false);
+    setActiveScanId(null);
 
     const apiUrl = getScannerApiBaseUrl();
 
@@ -154,11 +165,12 @@ export default function CardScanner() {
     if (saveTarget === 'device') {
       setSaving(true);
       try {
-        addLocalSavedScan({
+        const saved = addLocalSavedScan({
           analysis: results,
           imageDataUrl: frontImage,
           backImageDataUrl: backImage,
         });
+        setActiveScanId(saved.id);
         refreshLocalScans();
         toast({
           title: 'Saved on this device',
@@ -214,8 +226,30 @@ export default function CardScanner() {
     }
   };
 
+  const handleDecisionSaved = (decision: GradingDecision) => {
+    if (!results) return;
+
+    const updated = { ...results, gradingDecision: decision };
+    setResults(updated);
+
+    if (activeScanId) {
+      try {
+        updateLocalSavedScan(activeScanId, { analysis: updated });
+        refreshLocalScans();
+      } catch {
+        // Decision remains in memory if local patch fails
+      }
+    }
+
+    toast({
+      title: 'Decision saved',
+      description: `Route: ${decision.route.replace('_', ' ')} · ${decision.stage3Zone} zone`,
+    });
+  };
+
   const handleRemoveLocal = (id: string) => {
     removeLocalSavedScan(id);
+    if (activeScanId === id) setActiveScanId(null);
     refreshLocalScans();
     toast({ title: 'Removed', description: 'Scan removed from this device.' });
   };
@@ -233,82 +267,70 @@ export default function CardScanner() {
       </p>
 
       <div className="grid md:grid-cols-2 gap-8">
+        {/* ── LEFT: upload + controls ── */}
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-          {(
-            [
-              {
-                side: 'front' as const,
-                label: 'Front',
-                image: frontImage,
-              },
-              {
-                side: 'back' as const,
-                label: 'Back',
-                image: backImage,
-              },
-            ] as const
-          ).map(({ side, label, image }) => (
-            <div key={side} className="space-y-2">
-              <p className="text-xl font-bold text-[#14314F]">
-                {label}{' '}
-                <span className="text-red-600" aria-hidden="true">
-                  *
-                </span>
-                <span className="sr-only">(required)</span>
-              </p>
-              <div
-                className="border-4 border-dashed border-[#47682d] rounded-lg p-4 text-center bg-gray-50 hover:bg-gray-100 transition min-h-[12rem] flex flex-col justify-center"
-                onDragOver={handleDragOver}
-                onDrop={handleDrop(side)}
-              >
-                {!image ? (
-                  <label className="cursor-pointer block py-4">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleFileUpload(side)}
-                      aria-label={`Upload ${label.toLowerCase()} of card`}
-                    />
-                    <Upload className="w-10 h-10 mx-auto mb-2 text-[#47682d]" />
-                    <p className="text-sm text-gray-700">
-                      Click or drag {label.toLowerCase()} photo
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      JPG, PNG, HEIC
-                    </p>
-                  </label>
-                ) : (
-                  <div>
-                    <img
-                      src={image}
-                      alt={`${label} of card`}
-                      className="max-h-48 mx-auto rounded-lg shadow-md"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (side === 'front') {
-                          setFrontImage(null);
-                          setFrontBase64(null);
-                        } else {
-                          setBackImage(null);
-                          setBackBase64(null);
-                        }
-                        setResults(null);
-                        setIsDemoMode(false);
-                      }}
-                      className="mt-3 text-[#47682d] hover:underline text-xs"
-                    >
-                      Replace {label.toLowerCase()}
-                    </button>
-                  </div>
-                )}
+            {(
+              [
+                { side: 'front' as const, label: 'Front', image: frontImage },
+                { side: 'back' as const, label: 'Back', image: backImage },
+              ] as const
+            ).map(({ side, label, image }) => (
+              <div key={side} className="space-y-2">
+                <p className="text-xl font-bold text-[#14314F]">
+                  {label}{' '}
+                  <span className="text-red-600" aria-hidden="true">*</span>
+                  <span className="sr-only">(required)</span>
+                </p>
+                <div
+                  className="border-4 border-dashed border-[#47682d] rounded-lg p-4 text-center bg-gray-50 hover:bg-gray-100 transition min-h-[12rem] flex flex-col justify-center"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop(side)}
+                >
+                  {!image ? (
+                    <label className="cursor-pointer block py-4">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleFileUpload(side)}
+                        aria-label={`Upload ${label.toLowerCase()} of card`}
+                      />
+                      <Upload className="w-10 h-10 mx-auto mb-2 text-[#47682d]" />
+                      <p className="text-sm text-gray-700">
+                        Click or drag {label.toLowerCase()} photo
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">JPG, PNG, HEIC</p>
+                    </label>
+                  ) : (
+                    <div>
+                      <img
+                        src={image}
+                        alt={`${label} of card`}
+                        className="max-h-48 mx-auto rounded-lg shadow-md"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (side === 'front') {
+                            setFrontImage(null);
+                            setFrontBase64(null);
+                          } else {
+                            setBackImage(null);
+                            setBackBase64(null);
+                          }
+                          setResults(null);
+                          setIsDemoMode(false);
+                        }}
+                        className="mt-3 text-[#47682d] hover:underline text-xs"
+                      >
+                        Replace {label.toLowerCase()}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-
+            ))}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -344,14 +366,13 @@ export default function CardScanner() {
           )}
         </div>
 
+        {/* ── RIGHT: results + grading engine ── */}
         <div>
           {scanning && (
             <div className="text-center py-12">
               <Loader2 className="w-16 h-16 animate-spin text-[#47682d] mx-auto mb-4" />
               <p className="text-lg text-gray-700">Analyzing your card…</p>
-              <p className="text-sm text-gray-500 mt-2">
-                This may take a few seconds
-              </p>
+              <p className="text-sm text-gray-500 mt-2">This may take a few seconds</p>
             </div>
           )}
 
@@ -360,13 +381,12 @@ export default function CardScanner() {
               {isDemoMode && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   Demo mode — connect{' '}
-                  <code className="rounded bg-amber-100 px-1">
-                    VITE_SCANNER_API_URL
-                  </code>{' '}
+                  <code className="rounded bg-amber-100 px-1">VITE_SCANNER_API_URL</code>{' '}
                   for live estimates.
                 </div>
               )}
 
+              {/* Predicted grades */}
               <div className="bg-[#14314F] text-white p-4 rounded-lg">
                 <h3 className="font-bold mb-2">Predicted grades</h3>
                 <p className="text-xs text-white/70 mb-3">
@@ -377,28 +397,25 @@ export default function CardScanner() {
                     <span className="text-2xl font-bold text-[#47682d]">
                       {results.predictedGrade?.PSA ?? 'N/A'}
                     </span>
-                    <br />
-                    PSA
+                    <br />PSA
                   </div>
                   <div>
                     <span className="text-2xl font-bold text-[#47682d]">
                       {results.predictedGrade?.Beckett ?? 'N/A'}
                     </span>
-                    <br />
-                    BGS
+                    <br />BGS
                   </div>
                   <div>
                     <span className="text-2xl font-bold text-[#47682d]">
                       {results.predictedGrade?.CGC ?? 'N/A'}
                     </span>
-                    <br />
-                    CGC
+                    <br />CGC
                   </div>
                 </div>
               </div>
 
-              {(results.centeringRatio != null ||
-                results.centeringGradeLabel) && (
+              {/* Centering detail */}
+              {(results.centeringRatio != null || results.centeringGradeLabel) && (
                 <div className="text-sm text-gray-600 space-y-1 bg-gray-50 rounded-lg p-3">
                   {results.centeringRatio != null && (
                     <p>
@@ -415,6 +432,7 @@ export default function CardScanner() {
                 </div>
               )}
 
+              {/* Score bars */}
               <div className="space-y-3">
                 {(
                   [
@@ -442,30 +460,23 @@ export default function CardScanner() {
                 ))}
               </div>
 
+              {/* Deal score */}
               <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 text-center">
                 <p className="text-sm text-gray-600">Deal score</p>
-                <p className="text-3xl font-bold text-green-600">
-                  {results.dealScore}/5
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {results.confidence}% confidence
-                </p>
+                <p className="text-3xl font-bold text-green-600">{results.dealScore}/5</p>
+                <p className="text-xs text-gray-500 mt-1">{results.confidence}% confidence</p>
               </div>
 
               {results.explanation && (
                 <div className="bg-[#14314F]/5 border border-[#14314F]/20 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-[#14314F] mb-1">
-                    Summary
-                  </p>
+                  <p className="text-xs font-semibold text-[#14314F] mb-1">Summary</p>
                   <p className="text-sm text-gray-700">{results.explanation}</p>
                 </div>
               )}
 
               {results.warnings && results.warnings.length > 0 && (
                 <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
-                  <p className="text-xs font-semibold text-orange-900 mb-1">
-                    Warnings
-                  </p>
+                  <p className="text-xs font-semibold text-orange-900 mb-1">Warnings</p>
                   <ul className="text-sm text-orange-900 list-disc list-inside space-y-1">
                     {results.warnings.map((w, i) => (
                       <li key={i}>{w}</li>
@@ -482,53 +493,35 @@ export default function CardScanner() {
 
               {results.cardDetails && (
                 <div className="text-sm text-gray-600 space-y-1">
-                  {results.cardDetails.player &&
-                    results.cardDetails.player !== 'Unknown' && (
-                      <p>
-                        <strong>Player:</strong> {results.cardDetails.player}
-                      </p>
-                    )}
-                  {results.cardDetails.year &&
-                    results.cardDetails.year !== 'Unknown' && (
-                      <p>
-                        <strong>Year:</strong> {results.cardDetails.year}
-                      </p>
-                    )}
-                  {results.cardDetails.set &&
-                    results.cardDetails.set !== 'Unknown' && (
-                      <p>
-                        <strong>Set:</strong> {results.cardDetails.set}
-                      </p>
-                    )}
+                  {results.cardDetails.player && results.cardDetails.player !== 'Unknown' && (
+                    <p><strong>Player:</strong> {results.cardDetails.player}</p>
+                  )}
+                  {results.cardDetails.year && results.cardDetails.year !== 'Unknown' && (
+                    <p><strong>Year:</strong> {results.cardDetails.year}</p>
+                  )}
+                  {results.cardDetails.set && results.cardDetails.set !== 'Unknown' && (
+                    <p><strong>Set:</strong> {results.cardDetails.set}</p>
+                  )}
                 </div>
               )}
 
+              {/* Save scan */}
               <div className="rounded-lg border border-[#14314F]/20 bg-gray-50 p-4 space-y-3">
-                <p className="text-sm font-semibold text-[#14314F]">
-                  Save this scan
-                </p>
+                <p className="text-sm font-semibold text-[#14314F]">Save this scan</p>
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                   <div className="flex-1 space-y-1.5">
                     <label className="text-xs text-gray-600">Destination</label>
                     <Select
                       value={saveTarget}
-                      onValueChange={(v) =>
-                        setSaveTarget(v as CardScanSaveTarget)
-                      }
+                      onValueChange={(v) => setSaveTarget(v as CardScanSaveTarget)}
                     >
                       <SelectTrigger className="bg-white">
                         <SelectValue placeholder="Choose where to save" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="device">
-                          This device (browser)
-                        </SelectItem>
-                        <SelectItem value="portfolio" disabled={!user}>
-                          My portfolio (account)
-                        </SelectItem>
-                        <SelectItem value="watchlist" disabled={!user}>
-                          Watchlist (account)
-                        </SelectItem>
+                        <SelectItem value="device">This device (browser)</SelectItem>
+                        <SelectItem value="portfolio" disabled={!user}>My portfolio (account)</SelectItem>
+                        <SelectItem value="watchlist" disabled={!user}>Watchlist (account)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -551,17 +544,11 @@ export default function CardScanner() {
                 </div>
                 {!user && (
                   <p className="text-xs text-gray-600">
-                    <Link
-                      to="/login"
-                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
-                    >
+                    <Link to="/login" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
                       Sign in
                     </Link>{' '}
                     to save to your portfolio or watchlist.{' '}
-                    <Link
-                      to="/portal"
-                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
-                    >
+                    <Link to="/portal" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
                       Portal
                     </Link>
                   </p>
@@ -569,27 +556,30 @@ export default function CardScanner() {
                 {user && (
                   <p className="text-xs text-gray-600">
                     Portfolio and watchlist sync to your account (Supabase).{' '}
-                    <Link
-                      to="/portal"
-                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
-                    >
+                    <Link to="/portal" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
                       Open portal
                     </Link>
                     {' · '}
-                    <Link
-                      to="/watchlist"
-                      className="text-[#47682d] font-medium underline-offset-2 hover:underline"
-                    >
+                    <Link to="/watchlist" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
                       Watchlist
                     </Link>
                   </p>
                 )}
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <GradingDecisionEngine
+                  analysis={results}
+                  onDecisionSaved={handleDecisionSaved}
+                  existingDecision={results.gradingDecision}
+                />
               </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Saved local scans list */}
       {localScans.length > 0 && (
         <div className="mt-10 border-t border-gray-200 pt-8">
           <h3 className="text-lg font-semibold text-[#14314F] mb-2">
@@ -606,22 +596,14 @@ export default function CardScanner() {
               >
                 <div className="flex gap-1 shrink-0">
                   {entry.imageDataUrl ? (
-                    <img
-                      src={entry.imageDataUrl}
-                      alt="Front"
-                      className="w-14 h-14 object-cover rounded-md"
-                    />
+                    <img src={entry.imageDataUrl} alt="Front" className="w-14 h-14 object-cover rounded-md" />
                   ) : (
                     <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
                       No front
                     </div>
                   )}
                   {entry.backImageDataUrl ? (
-                    <img
-                      src={entry.backImageDataUrl}
-                      alt="Back"
-                      className="w-14 h-14 object-cover rounded-md"
-                    />
+                    <img src={entry.backImageDataUrl} alt="Back" className="w-14 h-14 object-cover rounded-md" />
                   ) : (
                     <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
                       No back
@@ -634,10 +616,14 @@ export default function CardScanner() {
                     {new Date(entry.savedAt).toLocaleString()}
                   </p>
                   <p className="text-gray-600 truncate">
-                    {entry.analysis.explanation ||
-                      entry.analysis.notes ||
-                      'Saved scan'}
+                    {entry.analysis.explanation || entry.analysis.notes || 'Saved scan'}
                   </p>
+                  {entry.analysis.gradingDecision && (
+                    <p className="text-xs mt-1 font-medium text-[#14314F]/70">
+                      Decision: {entry.analysis.gradingDecision.route.replace('_', ' ')} ·{' '}
+                      {entry.analysis.gradingDecision.stage3Zone} zone
+                    </p>
+                  )}
                 </div>
                 <Button
                   type="button"

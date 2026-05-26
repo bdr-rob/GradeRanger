@@ -33,6 +33,24 @@ export function removeLocalSavedScan(id: string): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 }
 
+export function updateLocalSavedScan(
+  id: string,
+  patch: { analysis?: CardScanAnalysisData },
+): SavedLocalScan | null {
+  const scans = parseStored();
+  const index = scans.findIndex((s) => s.id === id);
+  if (index < 0) return null;
+
+  const updated: SavedLocalScan = {
+    ...scans[index],
+    analysis: patch.analysis ?? scans[index].analysis,
+  };
+  const next = [...scans];
+  next[index] = updated;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  return updated;
+}
+
 /**
  * Saves analysis (and optional image) to localStorage. Drops the image if quota is exceeded.
  */
