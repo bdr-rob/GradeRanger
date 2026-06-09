@@ -8,11 +8,11 @@ import { createClient } from '@supabase/supabase-js';
  */
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL ??
-  'https://siwatqcfmopzjdfykhqv.supabase.co';
+  'https://bgufxqivlxlfebayydcl.supabase.co';
 
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY ??
-  'sb_publishable_OHQnLWjqug_VHiGWCvqu6A_T9G_LZkg';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJndWZ4cWl2bHhsZmViYXl5ZGNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NTQzNzIsImV4cCI6MjA5NjUzMDM3Mn0.IVCaOH8PJHeLT0hMDENdSwb6rcBs_pa-nCFziTYsVDI';
 
 if (import.meta.env.DEV && !import.meta.env.VITE_SUPABASE_ANON_KEY) {
   // eslint-disable-next-line no-console

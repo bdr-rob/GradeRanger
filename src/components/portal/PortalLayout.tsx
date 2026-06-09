@@ -1,7 +1,15 @@
 import { NavLink, Outlet, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { LayoutDashboard, FolderOpen, Scale, ChevronRight } from 'lucide-react';
+import {
+  LayoutDashboard,
+  ScanLine,
+  Scale,
+  ShoppingBag,
+  Settings,
+  Shield,
+  ChevronRight,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -11,6 +19,23 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       ? 'bg-[#47682d] text-white'
       : 'text-[#ABD2BE] hover:bg-white/10 hover:text-white',
   );
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  end?: boolean;
+  adminOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/portal', label: 'Collection', icon: <LayoutDashboard className="w-4 h-4 shrink-0" />, end: true },
+  { to: '/portal/intake', label: 'Quick scan', icon: <ScanLine className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/grading', label: 'Grading', icon: <Scale className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/listings', label: 'Listings', icon: <ShoppingBag className="w-4 h-4 shrink-0" /> },
+  { to: '/settings', label: 'Settings', icon: <Settings className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/admin', label: 'Admin', icon: <Shield className="w-4 h-4 shrink-0" />, adminOnly: true },
+];
 
 export default function PortalLayout() {
   const { user, signOut } = useAuth();
@@ -29,18 +54,12 @@ export default function PortalLayout() {
                 />
               </Link>
               <div className="min-w-0">
-                <p className="text-xs text-[#ABD2BE] uppercase tracking-wide">
-                  Member portal
-                </p>
-                <h1 className="text-lg font-bold text-white truncate">
-                  Your portfolio workspace
-                </h1>
+                <p className="text-xs text-[#ABD2BE] uppercase tracking-wide">Member portal</p>
+                <h1 className="text-lg font-bold text-white truncate">Grade Ranger</h1>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-[#ABD2BE] truncate max-w-[200px]">
-                {user?.email}
-              </span>
+              <span className="text-sm text-[#ABD2BE] truncate max-w-[200px]">{user?.email}</span>
               <Button
                 asChild
                 variant="outline"
@@ -76,18 +95,17 @@ export default function PortalLayout() {
       <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto">
         <aside className="md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-gray-200 bg-white md:min-h-[calc(100vh-5rem)]">
           <nav className="p-3 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
-            <NavLink to="/portal" end className={navLinkClass}>
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              Overview
-            </NavLink>
-            <NavLink to="/portal/portfolio" className={navLinkClass}>
-              <FolderOpen className="w-4 h-4 shrink-0" />
-              Build portfolio
-            </NavLink>
-            <NavLink to="/portal/grading" className={navLinkClass}>
-              <Scale className="w-4 h-4 shrink-0" />
-              Grading decisions
-            </NavLink>
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={navLinkClass}
+              >
+                {item.icon}
+                <span className="hidden sm:inline md:inline">{item.label}</span>
+              </NavLink>
+            ))}
           </nav>
         </aside>
 
