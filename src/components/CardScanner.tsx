@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Loader2, Camera, Upload, BookmarkPlus, Trash2 } from 'lucide-react';
+import { Loader2, Camera, Upload, BookmarkPlus, Trash2, Scan } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -16,11 +16,7 @@ import type {
   CardScanSaveTarget,
   GradingDecision,
 } from '@/types/cardScan';
-import {
-  analyzeCardRemote,
-  getDemoAnalysis,
-  getScannerApiBaseUrl,
-} from '@/lib/cardScanClient';
+import { analyzeCardRemote } from '@/lib/cardScanClient';
 import {
   addLocalSavedScan,
   getLocalSavedScans,
@@ -32,25 +28,40 @@ import {
   saveScanToWatchlist,
 } from '@/lib/saveCardScanRemote';
 import GradingDecisionEngine from '@/components/GradingDecisionEngine';
+import { ebayAPI } from '@/lib/api/ebay';
+
+// Dynamsoft is configured globally in main.tsx
+declare const Dynamsoft: any;
 
 type CardSide = 'front' | 'back';
+type InputMode = 'upload' | 'scanner';
 
 export default function CardScanner() {
   const { user } = useAuth();
 
+  // ── Image state ────────────────────────────────────────────────────────────
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [frontBase64, setFrontBase64] = useState<string | null>(null);
   const [backBase64, setBackBase64] = useState<string | null>(null);
 
+  // ── Analysis state ─────────────────────────────────────────────────────────
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<CardScanAnalysisData | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [saveTarget, setSaveTarget] = useState<CardScanSaveTarget>('device');
   const [localScans, setLocalScans] = useState(() => getLocalSavedScans());
-
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
+
+  // ── Scanner (Dynamsoft) state ──────────────────────────────────────────────
+  const [inputMode, setInputMode] = useState<InputMode>('upload');
+  const [dwtReady, setDwtReady] = useState(false);
+  const [dwtLoading, setDwtLoading] = useState(false);
+  const [scannerSources, setScannerSources] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState(0);
+  const [scanStatus, setScanStatus] = useState('');
+  const dwtRef = useRef<any>(null);
 
   const { toast } = useToast();
 
@@ -58,6 +69,122 @@ export default function CardScanner() {
     setLocalScans(getLocalSavedScans());
   }, []);
 
+  // ── Dynamsoft initialization ───────────────────────────────────────────────
+  const initializeDWT = useCallback(async () => {
+    if (dwtRef.current || dwtLoading) return;
+    setDwtLoading(true);
+    setScanStatus('Connecting to scanner service…');
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        Dynamsoft.DWT.CreateDWTObjectEx(
+          { WebTwainId: 'GradeRangerDWT' },
+          (obj: any) => {
+            dwtRef.current = obj;
+            const sources: string[] = obj.GetSourceNames() ?? [];
+            setScannerSources(sources);
+            if (sources.length > 0) setSelectedSource(0);
+            setDwtReady(true);
+            setScanStatus(
+              sources.length > 0
+                ? `${sources.length} scanner(s) found`
+                : 'No scanners found — check USB connection'
+            );
+            resolve();
+          },
+          (code: number, msg: string) => {
+            reject(new Error(msg || `Scanner service error (${code})`));
+          }
+        );
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setScanStatus('');
+      toast({
+        title: 'Scanner unavailable',
+        description: 'Install Dynamsoft Service to use the Ricoh scanner. Use Upload mode in the meantime.',
+        variant: 'destructive',
+      });
+      console.warn('[DWT]', msg);
+    } finally {
+      setDwtLoading(false);
+    }
+  }, [dwtLoading, toast]);
+
+  useEffect(() => {
+    if (inputMode === 'scanner') {
+      initializeDWT();
+    }
+    return () => {
+      if (inputMode !== 'scanner' && dwtRef.current) {
+        try { Dynamsoft.DWT.DeleteDWTObject('GradeRangerDWT'); } catch {}
+        dwtRef.current = null;
+        setDwtReady(false);
+      }
+    };
+  }, [inputMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Scanner capture ────────────────────────────────────────────────────────
+  const scanCard = useCallback(async (side: CardSide) => {
+    if (!dwtRef.current) {
+      toast({ title: 'Scanner not ready', variant: 'destructive' });
+      return;
+    }
+
+    const dwt = dwtRef.current;
+    setScanStatus(`Scanning ${side}…`);
+
+    try {
+      if (!dwt.SelectSourceByIndex(selectedSource)) {
+        throw new Error('Could not select scanner source');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        dwt.OpenSource();
+        dwt.AcquireImage(
+          { PixelType: 2, Resolution: 600, IfDisableSourceAfterAcquire: true },
+          () => resolve(),
+          (code: number, msg: string) =>
+            reject(new Error(msg || `Scan failed (${code})`))
+        );
+      });
+
+      const base64Str: string = await new Promise((resolve, reject) => {
+        dwt.ConvertToBase64(
+          [dwt.CurrentImageIndexInBuffer],
+          4, // JPEG
+          (result: any) => resolve(result.getData(0, result.getLength())),
+          (code: number, msg: string) =>
+            reject(new Error(msg || `Conversion failed (${code})`))
+        );
+      });
+
+      const dataUrl = `data:image/jpeg;base64,${base64Str}`;
+      if (side === 'front') {
+        setFrontImage(dataUrl);
+        setFrontBase64(base64Str);
+      } else {
+        setBackImage(dataUrl);
+        setBackBase64(base64Str);
+      }
+
+      setResults(null);
+      setIsDemoMode(false);
+      setScanStatus(`${side === 'front' ? 'Front' : 'Back'} scanned ✓`);
+      toast({
+        title: `${side === 'front' ? 'Front' : 'Back'} scanned`,
+        description: `Now scan the ${side === 'front' ? 'back' : 'front'} to continue.`,
+      });
+
+      dwt.RemoveAllImages();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Scan failed';
+      setScanStatus('');
+      toast({ title: 'Scan failed', description: message, variant: 'destructive' });
+    }
+  }, [selectedSource, toast]);
+
+  // ── Upload helpers ─────────────────────────────────────────────────────────
   const resetUpload = () => {
     setFrontImage(null);
     setBackImage(null);
@@ -66,6 +193,7 @@ export default function CardScanner() {
     setResults(null);
     setIsDemoMode(false);
     setActiveScanId(null);
+    setScanStatus('');
   };
 
   const loadFile = useCallback((file: File, side: CardSide) => {
@@ -73,13 +201,8 @@ export default function CardScanner() {
     reader.onload = () => {
       const dataUrl = reader.result as string;
       const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-      if (side === 'front') {
-        setFrontImage(dataUrl);
-        setFrontBase64(raw);
-      } else {
-        setBackImage(dataUrl);
-        setBackBase64(raw);
-      }
+      if (side === 'front') { setFrontImage(dataUrl); setFrontBase64(raw); }
+      else { setBackImage(dataUrl); setBackBase64(raw); }
       setResults(null);
       setIsDemoMode(false);
     };
@@ -98,21 +221,21 @@ export default function CardScanner() {
     e.stopPropagation();
   };
 
-  const handleDrop =
-    (side: CardSide) => (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const file = e.dataTransfer.files?.[0];
-      if (file && file.type.startsWith('image/')) loadFile(file, side);
-    };
+  const handleDrop = (side: CardSide) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) loadFile(file, side);
+  };
 
   const bothImagesReady = Boolean(frontBase64 && backBase64);
 
+  // ── Analysis ───────────────────────────────────────────────────────────────
   const runAnalysis = async () => {
     if (!frontBase64 || !backBase64) {
       toast({
         title: 'Both sides required',
-        description: 'Upload a front and back photo before analyzing.',
+        description: 'Capture or upload a front and back image before analyzing.',
         variant: 'destructive',
       });
       return;
@@ -123,40 +246,51 @@ export default function CardScanner() {
     setIsDemoMode(false);
     setActiveScanId(null);
 
-    const apiUrl = getScannerApiBaseUrl();
-
     try {
-      if (!apiUrl) {
-        setResults(getDemoAnalysis());
-        setIsDemoMode(true);
-        toast({
-          title: 'Demo analysis',
-          description:
-            'Showing placeholder scores. Set VITE_SCANNER_API_URL to use the Python scanner.',
-        });
-        return;
+      // analyzeCardRemote handles: Claude Sonnet → local scanner → demo fallback
+      const data = await analyzeCardRemote(frontBase64, backBase64);
+
+      const isDemo = Boolean(data.notes?.toLowerCase().includes('demo mode'));
+      setIsDemoMode(isDemo);
+
+      // Auto-fetch eBay sold comps when Claude identifies the card
+      if (!isDemo && data.cardIdentification?.player) {
+        try {
+          const { player, year, set } = data.cardIdentification;
+          const keywords = [player, year, set].filter(Boolean).join(' ');
+          const compsRes = await ebayAPI.getSoldComps({
+            keywords: `${keywords} PSA`,
+            limit: 30,
+          });
+          if (compsRes.success && compsRes.data?.stats) {
+            const avg = compsRes.data.stats.avgPrice;
+            data.pricing = {
+              raw_avg: Math.round(avg * 0.55),
+              psa9_avg: Math.round(avg),
+              psa10_avg: Math.round(avg * 1.6),
+            };
+          }
+        } catch {
+          // Pricing failure doesn't block grading display
+        }
       }
 
-      const data = await analyzeCardRemote(frontBase64, backBase64);
       setResults(data);
       toast({
-        title: 'Analysis complete',
-        description: 'Estimated grades below are informational only.',
+        title: isDemo ? 'Demo mode' : 'Analysis complete',
+        description: isDemo
+          ? 'Claude Sonnet not connected yet — showing placeholder scores.'
+          : 'Estimated grades are informational only.',
       });
     } catch (error: unknown) {
-      console.error('Card analysis error:', error);
-      const message =
-        error instanceof Error ? error.message : 'Unable to analyze card.';
-      toast({
-        title: 'Analysis failed',
-        description: message,
-        variant: 'destructive',
-      });
+      const message = error instanceof Error ? error.message : 'Unable to analyze card.';
+      toast({ title: 'Analysis failed', description: message, variant: 'destructive' });
     } finally {
       setScanning(false);
     }
   };
 
+  // ── Save handlers ──────────────────────────────────────────────────────────
   const refreshLocalScans = () => setLocalScans(getLocalSavedScans());
 
   const handleSaveScan = async () => {
@@ -174,15 +308,12 @@ export default function CardScanner() {
         refreshLocalScans();
         toast({
           title: 'Saved on this device',
-          description:
-            'You can review it in the list below. Data stays in your browser.',
+          description: 'Data stays in your browser.',
         });
       } catch (e: unknown) {
-        const message =
-          e instanceof Error ? e.message : 'Could not save locally.';
         toast({
           title: 'Save failed',
-          description: message,
+          description: e instanceof Error ? e.message : 'Could not save locally.',
           variant: 'destructive',
         });
       } finally {
@@ -194,7 +325,7 @@ export default function CardScanner() {
     if (!user) {
       toast({
         title: 'Sign in required',
-        description: 'Log in to save scans to your portfolio or watchlist.',
+        description: 'Log in to save to portfolio or watchlist.',
         variant: 'destructive',
       });
       return;
@@ -205,22 +336,18 @@ export default function CardScanner() {
       if (saveTarget === 'portfolio') {
         const { error } = await saveScanToPortfolio(user.id, results);
         if (error) throw error;
-        toast({
-          title: 'Saved to portfolio',
-          description: 'Open your portal to view and edit the item.',
-        });
+        toast({ title: 'Saved to portfolio', description: 'Open your portal to view it.' });
       } else {
         const { error } = await saveScanToWatchlist(user.id, results);
         if (error) throw error;
-        toast({
-          title: 'Saved to watchlist',
-          description: 'View it anytime under Watchlist in your account.',
-        });
+        toast({ title: 'Saved to watchlist' });
       }
     } catch (e: unknown) {
-      const message =
-        e instanceof Error ? e.message : 'Could not save. Please try again.';
-      toast({ title: 'Save failed', description: message, variant: 'destructive' });
+      toast({
+        title: 'Save failed',
+        description: e instanceof Error ? e.message : 'Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -228,19 +355,14 @@ export default function CardScanner() {
 
   const handleDecisionSaved = (decision: GradingDecision) => {
     if (!results) return;
-
     const updated = { ...results, gradingDecision: decision };
     setResults(updated);
-
     if (activeScanId) {
       try {
         updateLocalSavedScan(activeScanId, { analysis: updated });
         refreshLocalScans();
-      } catch {
-        // Decision remains in memory if local patch fails
-      }
+      } catch {}
     }
-
     toast({
       title: 'Decision saved',
       description: `Route: ${decision.route.replace('_', ' ')} · ${decision.stage3Zone} zone`,
@@ -251,9 +373,10 @@ export default function CardScanner() {
     removeLocalSavedScan(id);
     if (activeScanId === id) setActiveScanId(null);
     refreshLocalScans();
-    toast({ title: 'Removed', description: 'Scan removed from this device.' });
+    toast({ title: 'Removed from this device' });
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="bg-white rounded-xl shadow-lg p-8">
       <div className="flex items-center gap-3 mb-6">
@@ -262,77 +385,198 @@ export default function CardScanner() {
       </div>
 
       <p className="text-sm text-gray-600 mb-6">
-        Upload clear photos of both the front and back of your card. Both sides
-        are required before analysis.
+        Both the front and back of your card are required for analysis.
       </p>
 
       <div className="grid md:grid-cols-2 gap-8">
-        {/* ── LEFT: upload + controls ── */}
+        {/* ── LEFT: input controls ── */}
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {(
-              [
-                { side: 'front' as const, label: 'Front', image: frontImage },
-                { side: 'back' as const, label: 'Back', image: backImage },
-              ] as const
-            ).map(({ side, label, image }) => (
-              <div key={side} className="space-y-2">
-                <p className="text-xl font-bold text-[#14314F]">
-                  {label}{' '}
-                  <span className="text-red-600" aria-hidden="true">*</span>
-                  <span className="sr-only">(required)</span>
-                </p>
-                <div
-                  className="border-4 border-dashed border-[#47682d] rounded-lg p-4 text-center bg-gray-50 hover:bg-gray-100 transition min-h-[12rem] flex flex-col justify-center"
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop(side)}
-                >
-                  {!image ? (
-                    <label className="cursor-pointer block py-4">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleFileUpload(side)}
-                        aria-label={`Upload ${label.toLowerCase()} of card`}
-                      />
-                      <Upload className="w-10 h-10 mx-auto mb-2 text-[#47682d]" />
-                      <p className="text-sm text-gray-700">
-                        Click or drag {label.toLowerCase()} photo
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">JPG, PNG, HEIC</p>
-                    </label>
-                  ) : (
-                    <div>
-                      <img
-                        src={image}
-                        alt={`${label} of card`}
-                        className="max-h-48 mx-auto rounded-lg shadow-md"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (side === 'front') {
-                            setFrontImage(null);
-                            setFrontBase64(null);
-                          } else {
-                            setBackImage(null);
-                            setBackBase64(null);
-                          }
-                          setResults(null);
-                          setIsDemoMode(false);
-                        }}
-                        className="mt-3 text-[#47682d] hover:underline text-xs"
-                      >
-                        Replace {label.toLowerCase()}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+
+          {/* Tab switcher */}
+          <div className="flex gap-2 border-b border-gray-200 pb-3">
+            <button
+              type="button"
+              onClick={() => setInputMode('upload')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                inputMode === 'upload'
+                  ? 'bg-[#47682d] text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <Upload className="w-4 h-4" />
+              Upload Photos
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('scanner')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                inputMode === 'scanner'
+                  ? 'bg-[#47682d] text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <Scan className="w-4 h-4" />
+              Ricoh Scanner
+            </button>
           </div>
 
+          {/* ── Upload mode ── */}
+          {inputMode === 'upload' && (
+            <div className="grid grid-cols-2 gap-4">
+              {(
+                [
+                  { side: 'front' as const, label: 'Front', image: frontImage },
+                  { side: 'back' as const, label: 'Back', image: backImage },
+                ] as const
+              ).map(({ side, label, image }) => (
+                <div key={side} className="space-y-2">
+                  <p className="text-xl font-bold text-[#14314F]">
+                    {label}{' '}
+                    <span className="text-red-600" aria-hidden="true">*</span>
+                    <span className="sr-only">(required)</span>
+                  </p>
+                  <div
+                    className="border-4 border-dashed border-[#47682d] rounded-lg p-4 text-center bg-gray-50 hover:bg-gray-100 transition min-h-[12rem] flex flex-col justify-center"
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop(side)}
+                  >
+                    {!image ? (
+                      <label className="cursor-pointer block py-4">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleFileUpload(side)}
+                          aria-label={`Upload ${label.toLowerCase()} of card`}
+                        />
+                        <Upload className="w-10 h-10 mx-auto mb-2 text-[#47682d]" />
+                        <p className="text-sm text-gray-700">Click or drag {label.toLowerCase()} photo</p>
+                        <p className="text-xs text-gray-500 mt-1">JPG, PNG, HEIC</p>
+                      </label>
+                    ) : (
+                      <div>
+                        <img
+                          src={image}
+                          alt={`${label} of card`}
+                          className="max-h-48 mx-auto rounded-lg shadow-md"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (side === 'front') { setFrontImage(null); setFrontBase64(null); }
+                            else { setBackImage(null); setBackBase64(null); }
+                            setResults(null);
+                            setIsDemoMode(false);
+                          }}
+                          className="mt-3 text-[#47682d] hover:underline text-xs"
+                        >
+                          Replace {label.toLowerCase()}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Scanner mode (Dynamsoft + Ricoh 8170) ── */}
+          {inputMode === 'scanner' && (
+            <div className="space-y-4">
+              {/* Source selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Scanner source</label>
+                {dwtLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Connecting to scanner service…
+                  </div>
+                ) : !dwtReady ? (
+                  <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+                    <p className="font-medium">Scanner service not detected</p>
+                    <p className="mt-1 text-xs">
+                      Dynamsoft Service must be installed and running on this computer.
+                    </p>
+                    <a
+                      href="https://www.dynamsoft.com/web-twain/downloads/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#47682d] underline text-xs mt-2 inline-block"
+                    >
+                      Download Dynamsoft Service →
+                    </a>
+                  </div>
+                ) : scannerSources.length === 0 ? (
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+                    No scanners found. Check that the Ricoh 8170 is powered on and connected via USB.
+                  </p>
+                ) : (
+                  <Select
+                    value={String(selectedSource)}
+                    onValueChange={(v) => setSelectedSource(Number(v))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select scanner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {scannerSources.map((name, i) => (
+                        <SelectItem key={i} value={String(i)}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Scan buttons */}
+              <div className="grid grid-cols-2 gap-3">
+                {(['front', 'back'] as CardSide[]).map((side) => {
+                  const image = side === 'front' ? frontImage : backImage;
+                  const label = side === 'front' ? 'Front' : 'Back';
+                  return (
+                    <div key={side} className="space-y-2">
+                      <p className="text-sm font-bold text-[#14314F]">
+                        {label} <span className="text-red-600">*</span>
+                      </p>
+                      {image ? (
+                        <div className="text-center">
+                          <img
+                            src={image}
+                            alt={label}
+                            className="max-h-36 mx-auto rounded-lg shadow-md mb-2"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => scanCard(side)}
+                            disabled={!dwtReady}
+                            className="text-xs text-[#47682d] hover:underline"
+                          >
+                            Re-scan {label.toLowerCase()}
+                          </button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full border-[#47682d] text-[#47682d] hover:bg-[#47682d]/10"
+                          onClick={() => scanCard(side)}
+                          disabled={!dwtReady || scannerSources.length === 0}
+                        >
+                          <Scan className="w-4 h-4 mr-2" />
+                          Scan {label}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {scanStatus && (
+                <p className="text-xs text-gray-600 italic">{scanStatus}</p>
+              )}
+            </div>
+          )}
+
+          {/* Analyze button — shared between both modes */}
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <Button
               type="button"
@@ -361,18 +605,18 @@ export default function CardScanner() {
           </div>
           {!bothImagesReady && (frontImage || backImage) && (
             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              Add the {frontImage ? 'back' : 'front'} photo to continue.
+              Add the {frontImage ? 'back' : 'front'} to continue.
             </p>
           )}
         </div>
 
-        {/* ── RIGHT: results + grading engine ── */}
+        {/* ── RIGHT: results ── */}
         <div>
           {scanning && (
             <div className="text-center py-12">
               <Loader2 className="w-16 h-16 animate-spin text-[#47682d] mx-auto mb-4" />
               <p className="text-lg text-gray-700">Analyzing your card…</p>
-              <p className="text-sm text-gray-500 mt-2">This may take a few seconds</p>
+              <p className="text-sm text-gray-500 mt-2">Claude Sonnet is examining both sides</p>
             </div>
           )}
 
@@ -380,39 +624,80 @@ export default function CardScanner() {
             <div className="space-y-4">
               {isDemoMode && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Demo mode — connect{' '}
-                  <code className="rounded bg-amber-100 px-1">VITE_SCANNER_API_URL</code>{' '}
-                  for live estimates.
+                  Demo mode — Claude Sonnet not yet connected. Wire the{' '}
+                  <code className="rounded bg-amber-100 px-1">grade-analyze</code> edge function for live grading.
                 </div>
               )}
 
-              {/* Predicted grades */}
-              <div className="bg-[#14314F] text-white p-4 rounded-lg">
-                <h3 className="font-bold mb-2">Predicted grades</h3>
-                <p className="text-xs text-white/70 mb-3">
-                  Informational estimates only — not a substitute for professional grading.
-                </p>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <span className="text-2xl font-bold text-[#47682d]">
-                      {results.predictedGrade?.PSA ?? 'N/A'}
-                    </span>
-                    <br />PSA
-                  </div>
-                  <div>
-                    <span className="text-2xl font-bold text-[#47682d]">
-                      {results.predictedGrade?.Beckett ?? 'N/A'}
-                    </span>
-                    <br />BGS
-                  </div>
-                  <div>
-                    <span className="text-2xl font-bold text-[#47682d]">
-                      {results.predictedGrade?.CGC ?? 'N/A'}
-                    </span>
-                    <br />CGC
+              {/* Card identification (populated by Claude) */}
+              {results.cardIdentification?.player && (
+                <div className="bg-[#14314F]/5 border border-[#14314F]/20 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-[#14314F] mb-2">Card identified</p>
+                  <div className="text-sm text-gray-700 space-y-0.5">
+                    {results.cardIdentification.player && (
+                      <p><strong>Player:</strong> {results.cardIdentification.player}</p>
+                    )}
+                    {results.cardIdentification.year && (
+                      <p><strong>Year:</strong> {results.cardIdentification.year}</p>
+                    )}
+                    {results.cardIdentification.set && (
+                      <p><strong>Set:</strong> {results.cardIdentification.set}</p>
+                    )}
+                    {results.cardIdentification.variant && (
+                      <p><strong>Variant:</strong> {results.cardIdentification.variant}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      ID confidence: {Math.round((results.cardIdentification.confidence ?? 0) * 100)}%
+                    </p>
                   </div>
                 </div>
+              )}
+
+              {/* Predicted grades — all 5 services */}
+              <div className="bg-[#14314F] text-white p-4 rounded-lg">
+                <h3 className="font-bold mb-1">Predicted grades</h3>
+                <p className="text-xs text-white/60 mb-3">
+                  Informational estimates only — not a substitute for professional grading.
+                </p>
+                <div className="grid grid-cols-5 gap-1 text-center">
+                  {[
+                    { label: 'PSA', value: results.predictedGrade?.PSA },
+                    { label: 'BGS', value: results.predictedGrade?.Beckett },
+                    { label: 'SGC', value: results.predictedGrade?.SGC },
+                    { label: 'CGC', value: results.predictedGrade?.CGC },
+                    { label: 'TAG', value: results.predictedGrade?.TAG },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <span className="text-xl font-bold text-[#ABD2BE]">
+                        {value ?? '—'}
+                      </span>
+                      <br />
+                      <span className="text-xs text-white/60">{label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* eBay sold comps pricing */}
+              {results.pricing && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-green-900 mb-2">
+                    Market pricing (eBay sold comps)
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {[
+                      { label: 'Raw avg', value: results.pricing.raw_avg },
+                      { label: 'PSA 9', value: results.pricing.psa9_avg },
+                      { label: 'PSA 10', value: results.pricing.psa10_avg },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <p className="text-lg font-bold text-green-700">${value}</p>
+                        <p className="text-xs text-gray-600">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Centering detail */}
               {(results.centeringRatio != null || results.centeringGradeLabel) && (
@@ -425,8 +710,7 @@ export default function CardScanner() {
                   )}
                   {results.centeringGradeLabel && (
                     <p>
-                      <strong>Centering band (heuristic):</strong>{' '}
-                      {results.centeringGradeLabel}
+                      <strong>Centering band:</strong> {results.centeringGradeLabel}
                     </p>
                   )}
                 </div>
@@ -478,30 +762,14 @@ export default function CardScanner() {
                 <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
                   <p className="text-xs font-semibold text-orange-900 mb-1">Warnings</p>
                   <ul className="text-sm text-orange-900 list-disc list-inside space-y-1">
-                    {results.warnings.map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
+                    {results.warnings.map((w, i) => <li key={i}>{w}</li>)}
                   </ul>
                 </div>
               )}
 
-              {results.notes && (
+              {results.notes && !isDemoMode && (
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-sm text-gray-700">{results.notes}</p>
-                </div>
-              )}
-
-              {results.cardDetails && (
-                <div className="text-sm text-gray-600 space-y-1">
-                  {results.cardDetails.player && results.cardDetails.player !== 'Unknown' && (
-                    <p><strong>Player:</strong> {results.cardDetails.player}</p>
-                  )}
-                  {results.cardDetails.year && results.cardDetails.year !== 'Unknown' && (
-                    <p><strong>Year:</strong> {results.cardDetails.year}</p>
-                  )}
-                  {results.cardDetails.set && results.cardDetails.set !== 'Unknown' && (
-                    <p><strong>Set:</strong> {results.cardDetails.set}</p>
-                  )}
                 </div>
               )}
 
@@ -535,10 +803,7 @@ export default function CardScanner() {
                     {saving ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <>
-                        <BookmarkPlus className="w-4 h-4 mr-2" />
-                        Save
-                      </>
+                      <><BookmarkPlus className="w-4 h-4 mr-2" />Save</>
                     )}
                   </Button>
                 </div>
@@ -547,22 +812,7 @@ export default function CardScanner() {
                     <Link to="/login" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
                       Sign in
                     </Link>{' '}
-                    to save to your portfolio or watchlist.{' '}
-                    <Link to="/portal" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
-                      Portal
-                    </Link>
-                  </p>
-                )}
-                {user && (
-                  <p className="text-xs text-gray-600">
-                    Portfolio and watchlist sync to your account (Supabase).{' '}
-                    <Link to="/portal" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
-                      Open portal
-                    </Link>
-                    {' · '}
-                    <Link to="/watchlist" className="text-[#47682d] font-medium underline-offset-2 hover:underline">
-                      Watchlist
-                    </Link>
+                    to save to your portfolio or watchlist.
                   </p>
                 )}
               </div>
@@ -579,7 +829,7 @@ export default function CardScanner() {
         </div>
       </div>
 
-      {/* Saved local scans list */}
+      {/* Saved local scans */}
       {localScans.length > 0 && (
         <div className="mt-10 border-t border-gray-200 pt-8">
           <h3 className="text-lg font-semibold text-[#14314F] mb-2">
@@ -598,16 +848,12 @@ export default function CardScanner() {
                   {entry.imageDataUrl ? (
                     <img src={entry.imageDataUrl} alt="Front" className="w-14 h-14 object-cover rounded-md" />
                   ) : (
-                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
-                      No front
-                    </div>
+                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500">No front</div>
                   )}
                   {entry.backImageDataUrl ? (
                     <img src={entry.backImageDataUrl} alt="Back" className="w-14 h-14 object-cover rounded-md" />
                   ) : (
-                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500 text-center px-1">
-                      No back
-                    </div>
+                    <div className="w-14 h-14 rounded-md bg-gray-200 flex items-center justify-center text-xs text-gray-500">No back</div>
                   )}
                 </div>
                 <div className="min-w-0 flex-1 text-sm">
