@@ -6,11 +6,14 @@ import {
   ScanLine,
   Scale,
   ShoppingBag,
+  TrendingUp,
   Settings,
   Shield,
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -33,12 +36,24 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/portal/intake', label: 'Quick scan', icon: <ScanLine className="w-4 h-4 shrink-0" /> },
   { to: '/portal/grading', label: 'Grading', icon: <Scale className="w-4 h-4 shrink-0" /> },
   { to: '/portal/listings', label: 'Listings', icon: <ShoppingBag className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/portfolio', label: 'Portfolio',   icon: <TrendingUp className="w-4 h-4 shrink-0" /> },
   { to: '/settings', label: 'Settings', icon: <Settings className="w-4 h-4 shrink-0" /> },
   { to: '/portal/admin', label: 'Admin', icon: <Shield className="w-4 h-4 shrink-0" />, adminOnly: true },
 ];
 
 export default function PortalLayout() {
   const { user, signOut } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {                             
+    if (!user) return;
+    supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => setIsAdmin(data?.role === 'admin'));
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -95,7 +110,7 @@ export default function PortalLayout() {
       <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto">
         <aside className="md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-gray-200 bg-white md:min-h-[calc(100vh-5rem)]">
           <nav className="p-3 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
-            {NAV_ITEMS.map((item) => (
+            {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

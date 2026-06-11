@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
+
 // Public pages
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
@@ -17,6 +18,7 @@ import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
+import AccountDeletion from '@/pages/AccountDeletion';
 
 // Protected pages
 import UserDashboard from "./pages/UserDashboard";
@@ -33,6 +35,8 @@ import CardIntake from "./pages/portal/CardIntake";
 import CardDetail from "./pages/portal/CardDetail";
 import ListingsDashboard from "./pages/portal/ListingsDashboard";
 import Admin from "./pages/portal/Admin";
+import PortalPortfolio from "./pages/portal/PortalPortfolio";
+
 
 const queryClient = new QueryClient();
 
@@ -54,6 +58,7 @@ const App = () => (
               <Route path="/auth/reset-password" element={<ResetPassword />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/account/delete" element={<AccountDeletion />} />
 
               {/* Protected — standalone pages */}
               <Route path="/dashboard" element={
@@ -79,7 +84,9 @@ const App = () => (
                 <Route path="cards/:id" element={<CardDetail />} />
                 <Route path="grading" element={<GradingDecisionsPage />} />
                 <Route path="listings" element={<ListingsDashboard />} />
+                <Route path="portfolio" element={<PortalPortfolio />} />
                 <Route path="admin" element={<Admin />} />
+                
               </Route>
 
               {/* 404 */}
