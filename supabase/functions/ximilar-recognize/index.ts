@@ -12,7 +12,6 @@ serve(async (req) => {
 
   try {
     const { images } = await req.json()
-    // images: Array<{ id: string, base64?: string, url?: string }>
 
     const XIMILAR_API_KEY = Deno.env.get('XIMILAR_API_KEY')
     if (!XIMILAR_API_KEY) throw new Error('XIMILAR_API_KEY not configured')
@@ -23,7 +22,8 @@ serve(async (req) => {
         : { _id: img.id, _url: img.url }
     )
 
-    const response = await fetch('https://api.ximilar.com/card/v2/recognize', {
+    // Try the general collectibles endpoint
+    const response = await fetch('https://api.ximilar.com/collectibles/v2/recognize', {
       method: 'POST',
       headers: {
         'Authorization': `Token ${XIMILAR_API_KEY}`,
@@ -32,12 +32,14 @@ serve(async (req) => {
       body: JSON.stringify({ records }),
     })
 
+    const responseText = await response.text()
+
     if (!response.ok) {
-      const err = await response.text()
-      throw new Error(`Ximilar API error: ${err}`)
+      // Return the actual Ximilar error so we can debug it
+      throw new Error(`Ximilar ${response.status}: ${responseText}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(responseText)
 
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
