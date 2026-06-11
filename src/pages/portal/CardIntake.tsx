@@ -1,191 +1,150 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
-import { CheckCircle2 } from 'lucide-react';
+import { ChevronRight, Upload, ScanLine } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import BatchScanQueue from '@/components/intake/BatchScanQueue';
+import CardReviewTable from '@/components/intake/CardReviewTable';
 import ScanStep from '@/components/intake/ScanStep';
-import PurchaseInfoStep, { type PurchaseFormValues } from '@/components/intake/PurchaseInfoStep';
-import ReviewStep from '@/components/intake/ReviewStep';
-import { submitCardForAnalysis } from '@/lib/api/aiAnalysis';
+import { ScannedImage, RecognizedCard, recognizeCards } from '@/lib/ximilar';
 
-type Step = 'scan' | 'purchase' | 'review';
-const STEPS: { id: Step; label: string }[] = [
-  { id: 'scan', label: 'Scan card' },
-  { id: 'purchase', label: 'Purchase info' },
-  { id: 'review', label: 'Review & confirm' },
-];
-
-function StepIndicator({ steps, current }: { steps: typeof STEPS; current: Step }) {
-  const currentIdx = steps.findIndex((s) => s.id === current);
-  return (
-    <nav className="flex items-center gap-2">
-      {steps.map((step, i) => {
-        const done = i < currentIdx;
-        const active = step.id === current;
-        return (
-          <div key={step.id} className="flex items-center gap-2">
-            <div
-              className={cn(
-                'flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold transition-colors',
-                done ? 'bg-[#47682d] text-white' : active ? 'bg-[#14314F] text-white' : 'bg-gray-200 text-gray-500',
-              )}
-            >
-              {done ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
-            </div>
-            <span
-              className={cn(
-                'text-sm font-medium hidden sm:inline',
-                active ? 'text-[#14314F]' : done ? 'text-[#47682d]' : 'text-gray-400',
-              )}
-            >
-              {step.label}
-            </span>
-            {i < steps.length - 1 && (
-              <div className={cn('h-px w-6 sm:w-10', done ? 'bg-[#47682d]' : 'bg-gray-200')} />
-            )}
-          </div>
-        );
-      })}
-    </nav>
-  );
-}
+type Step = 'scan' | 'review';
+type Mode = 'upload' | 'scanner';
 
 export default function CardIntake() {
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
-
   const [step, setStep] = useState<Step>('scan');
+  const [mode, setMode] = useState<Mode>('upload');
+  const [recognizing, setRecognizing] = useState(false);
+  const [recognizedCards, setRecognizedCards] = useState<RecognizedCard[]>([]);
+  const [error, setError] = useState('');
+
+  // Scanner mode holds front/back separately (ScanStep's design)
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
-  const [purchaseData, setPurchaseData] = useState<PurchaseFormValues | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  const handlePurchaseNext = (values: PurchaseFormValues) => {
-    setPurchaseData(values);
-    setStep('review');
-  };
-
-  const handleConfirm = async () => {
-    if (!user || !purchaseData) return;
-    setSaving(true);
-
+  const handleIdentify = async (images: ScannedImage[]) => {
+    setRecognizing(true);
+    setError('');
     try {
-      // 1. Upload images to Supabase Storage
-      let frontUrl: string | null = null;
-      let backUrl: string | null = null;
-
-      if (frontImage) {
-        const blob = await fetch(frontImage).then((r) => r.blob());
-        const path = `${user.id}/${Date.now()}_front.jpg`;
-        const { error: upErr } = await supabase.storage.from('card-images').upload(path, blob, { upsert: false });
-        if (!upErr) {
-          const { data } = supabase.storage.from('card-images').getPublicUrl(path);
-          frontUrl = data.publicUrl;
-        }
-      }
-
-      if (backImage) {
-        const blob = await fetch(backImage).then((r) => r.blob());
-        const path = `${user.id}/${Date.now()}_back.jpg`;
-        const { error: upErr } = await supabase.storage.from('card-images').upload(path, blob, { upsert: false });
-        if (!upErr) {
-          const { data } = supabase.storage.from('card-images').getPublicUrl(path);
-          backUrl = data.publicUrl;
-        }
-      }
-
-      // 2. Create card record
-      const { data: card, error: cardErr } = await supabase
-        .from('cards')
-        .insert({
-          user_id: user.id,
-          card_name: purchaseData.card_name,
-          player_name: purchaseData.player_name || null,
-          year: purchaseData.year || null,
-          set_name: purchaseData.set_name || null,
-          card_number: purchaseData.card_number || null,
-          sport: purchaseData.sport || null,
-          status: 'intake',
-          image_front_url: frontUrl,
-          image_back_url: backUrl,
-          notes: purchaseData.notes || null,
-        })
-        .select()
-        .single();
-
-      if (cardErr || !card) throw cardErr ?? new Error('Failed to create card');
-
-      // 3. Create purchase record
-      const purchasePrice = parseFloat(purchaseData.purchase_price || '0');
-      const shippingCost = parseFloat(purchaseData.shipping_cost || '0');
-
-      await supabase.from('purchases').insert({
-        card_id: card.id,
-        purchase_price: purchasePrice,
-        shipping_cost: shippingCost,
-        purchase_site: purchaseData.purchase_site || null,
-        purchase_order: purchaseData.purchase_order || null,
-        purchase_date: purchaseData.purchase_date || null,
-        notes: purchaseData.notes || null,
-      });
-
-      // 4. Kick off AI analysis (non-blocking)
-      if (frontUrl) {
-        submitCardForAnalysis(card.id, frontUrl, backUrl ?? frontUrl).catch(() => {
-          // Analysis will show as pending — user can retry from card detail page
-        });
-      }
-
-      toast({ title: 'Card saved', description: 'AI analysis is running in the background.' });
-      navigate(`/portal/cards/${card.id}`);
-    } catch (err) {
-      console.error(err);
-      toast({ title: 'Error saving card', description: 'Please try again.', variant: 'destructive' });
+      const results = await recognizeCards(images);
+      setRecognizedCards(results);
+      setStep('review');
+    } catch (err: any) {
+      setError(err.message);
     } finally {
-      setSaving(false);
+      setRecognizing(false);
     }
   };
 
+  // Convert scanner front/back dataUrls → ScannedImage[] → Ximilar
+  const handleScannerNext = () => {
+    const images: ScannedImage[] = [];
+    if (frontImage) {
+      images.push({
+        id: uuidv4(),
+        base64: frontImage.split(',')[1],
+        preview: frontImage,
+      });
+    }
+    if (backImage) {
+      images.push({
+        id: uuidv4(),
+        base64: backImage.split(',')[1],
+        preview: backImage,
+      });
+    }
+    if (images.length > 0) handleIdentify(images);
+  };
+
   return (
-    <div className="max-w-2xl space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-[#14314F]">Add a new card</h2>
-        <p className="text-gray-500 mt-1">Upload images, enter purchase details, and we'll run AI grading analysis automatically.</p>
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
+        <span>Portal</span>
+        <ChevronRight className="w-3 h-3" />
+        <span className="font-semibold" style={{ color: '#14314F' }}>Add Cards</span>
       </div>
 
-      <StepIndicator steps={STEPS} current={step} />
+      <h1 className="text-2xl font-extrabold mb-1" style={{ color: '#14314F' }}>
+        Add Cards to Portfolio
+      </h1>
+      <p className="text-sm text-gray-500 mb-8">
+        Upload images or use your scanner — AI will identify cards automatically.
+      </p>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        {step === 'scan' && (
-          <ScanStep
-            frontImage={frontImage}
-            backImage={backImage}
-            onFrontChange={setFrontImage}
-            onBackChange={setBackImage}
-            onNext={() => setStep('purchase')}
-          />
-        )}
-        {step === 'purchase' && (
-          <PurchaseInfoStep
-            defaultValues={purchaseData ?? undefined}
-            onNext={handlePurchaseNext}
-            onBack={() => setStep('scan')}
-          />
-        )}
-        {step === 'review' && purchaseData && (
-          <ReviewStep
-            frontImage={frontImage}
-            backImage={backImage}
-            purchaseData={purchaseData}
-            onBack={() => setStep('purchase')}
-            onConfirm={handleConfirm}
-            saving={saving}
-          />
-        )}
+      {/* Step indicator */}
+      <div className="flex items-center gap-3 mb-8">
+        {(['scan', 'review'] as Step[]).map((s, i) => (
+          <div key={s} className="flex items-center gap-2">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{
+                backgroundColor: step === s ? '#14314F' : '#e5e7eb',
+                color: step === s ? 'white' : '#9ca3af',
+              }}
+            >
+              {i + 1}
+            </div>
+            <span className="text-sm font-medium"
+              style={{ color: step === s ? '#14314F' : '#9ca3af' }}>
+              {s === 'scan' ? 'Upload & Scan' : 'Review & Save'}
+            </span>
+            {i < 1 && <ChevronRight className="w-4 h-4 text-gray-300" />}
+          </div>
+        ))}
       </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 rounded-xl text-sm text-red-700 bg-red-50 border border-red-100">
+          {error}
+        </div>
+      )}
+
+      {step === 'scan' && (
+        <>
+          {/* Mode tabs */}
+          <div className="flex gap-2 mb-6">
+            {([
+              { key: 'upload', label: 'Upload Photos', icon: <Upload className="w-4 h-4" /> },
+              { key: 'scanner', label: 'Use Scanner', icon: <ScanLine className="w-4 h-4" /> },
+            ] as { key: Mode; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => (
+              <button
+                key={key}
+                onClick={() => setMode(key)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-colors"
+                style={{
+                  borderColor: mode === key ? '#14314F' : '#e5e7eb',
+                  backgroundColor: mode === key ? '#14314F' : 'white',
+                  color: mode === key ? 'white' : '#6b7280',
+                }}
+              >
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'upload' && (
+            <BatchScanQueue onIdentify={handleIdentify} loading={recognizing} />
+          )}
+
+          {mode === 'scanner' && (
+            <ScanStep
+              frontImage={frontImage}
+              backImage={backImage}
+              onFrontChange={setFrontImage}
+              onBackChange={setBackImage}
+              onNext={handleScannerNext}
+            />
+          )}
+        </>
+      )}
+
+      {step === 'review' && recognizedCards.length > 0 && (
+        <CardReviewTable
+          cards={recognizedCards}
+          onComplete={() => navigate('/portal/portfolio')}
+        />
+      )}
     </div>
   );
 }

@@ -1,92 +1,105 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ScanLine, ChevronRight } from 'lucide-react';
-import BatchScanQueue from '@/components/intake/BatchScanQueue';
-import CardReviewTable from '@/components/intake/CardReviewTable';
-import { ScannedImage, RecognizedCard, recognizeCards } from '@/lib/ximilar';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import {
+  LayoutDashboard, ScanLine, Award, List,
+  TrendingUp, Settings, LogOut, Shield, ChevronRight,
+} from 'lucide-react';
 
-type Step = 'scan' | 'review';
+const NAV_ITEMS = [
+  { to: '/portal', label: 'Collection', icon: <LayoutDashboard className="w-4 h-4 shrink-0" />, end: true },
+  { to: '/portal/intake', label: 'Add Cards', icon: <ScanLine className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/portfolio', label: 'Portfolio', icon: <TrendingUp className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/grading', label: 'Grading', icon: <Award className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/listings', label: 'Listings', icon: <List className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/admin', label: 'Admin', icon: <Shield className="w-4 h-4 shrink-0" />, adminOnly: true },
+];
 
-export default function PortalIntake() {
+export default function PortalLayout() {
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>('scan');
-  const [recognizing, setRecognizing] = useState(false);
-  const [recognizedCards, setRecognizedCards] = useState<RecognizedCard[]>([]);
-  const [error, setError] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  const handleIdentify = async (images: ScannedImage[]) => {
-    setRecognizing(true);
-    setError('');
-    try {
-      const results = await recognizeCards(images);
-      setRecognizedCards(results);
-      setStep('review');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setRecognizing(false);
-    }
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => setIsAdmin(data?.role === 'admin'));
+  }, [user]);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
-          <span>Portal</span>
-          <ChevronRight className="w-3 h-3" />
-          <span className="font-semibold" style={{ color: '#14314F' }}>Add Cards</span>
-        </div>
-        <h1 className="text-2xl font-extrabold" style={{ color: '#14314F' }}>
-          Add Cards to Portfolio
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Upload or scan card images — AI will identify them automatically.
-        </p>
-      </div>
-
-      {/* Step indicator */}
-      <div className="flex items-center gap-3 mb-8">
-        {(['scan', 'review'] as Step[]).map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
+    <div className="min-h-screen flex bg-gray-50">
+      {/* Sidebar */}
+      <aside className="w-56 shrink-0 bg-white border-r border-gray-100 flex flex-col">
+        {/* Logo */}
+        <div className="px-4 py-5 border-b border-gray-100">
+          <div className="flex items-center gap-2">
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{
-                backgroundColor: step === s ? '#14314F' : s === 'review' && step === 'scan' ? '#e5e7eb' : '#ABD2BE',
-                color: step === s ? 'white' : '#14314F',
-              }}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: '#14314F' }}
             >
-              {i + 1}
+              <Shield className="w-4 h-4 text-white" />
             </div>
-            <span
-              className="text-sm font-medium capitalize"
-              style={{ color: step === s ? '#14314F' : '#9ca3af' }}
-            >
-              {s === 'scan' ? 'Upload & Scan' : 'Review & Save'}
+            <span className="font-bold text-sm" style={{ color: '#14314F' }}>
+              Grade Ranger
             </span>
-            {i < 1 && <ChevronRight className="w-4 h-4 text-gray-300" />}
           </div>
-        ))}
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl text-sm text-red-700 bg-red-50 border border-red-100">
-          {error}
         </div>
-      )}
 
-      {/* Steps */}
-      {step === 'scan' && (
-        <BatchScanQueue onIdentify={handleIdentify} loading={recognizing} />
-      )}
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 space-y-1">
+          {NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin).map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`
+              }
+              style={({ isActive }) =>
+                isActive ? { backgroundColor: '#14314F' } : {}
+              }
+            >
+              {item.icon}
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
-      {step === 'review' && recognizedCards.length > 0 && (
-        <CardReviewTable
-          cards={recognizedCards}
-          onComplete={() => navigate('/portal/portfolio')}
-        />
-      )}
+        {/* User / Sign out */}
+        <div className="px-3 py-4 border-t border-gray-100 space-y-1">
+          <div className="px-3 py-2">
+            <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto px-6 py-8">
+          <Outlet />
+        </div>
+      </main>
     </div>
   );
 }
