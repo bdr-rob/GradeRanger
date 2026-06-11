@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CheckCircle, Edit3, AlertTriangle, Loader2, Save, ChevronDown } from 'lucide-react';
 import { RecognizedCard } from '@/lib/ximilar';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
   cards: RecognizedCard[];
