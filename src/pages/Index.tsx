@@ -1,224 +1,296 @@
-import { useEffect, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import {
-  Scan, Brain, TrendingUp, Package,
-  BarChart3, ShoppingBag, ArrowRight,
-} from 'lucide-react';
 import AnnouncementPopup from '@/components/AnnouncementPopup';
-
-const FEATURES = [
-  { icon: <Scan className="h-6 w-6" />, title: 'Batch Card Scanning', description: 'Scan multiple cards at once using your Ricoh scanner or upload photos. Front and back captured in a single pass.' },
-  { icon: <Brain className="h-6 w-6" />, title: 'AI Card Recognition', description: 'Instantly identify sports cards and TCG cards. Player, set, year, and card number all auto-populated.' },
-  { icon: <TrendingUp className="h-6 w-6" />, title: 'AI Grade Prediction', description: 'Get a preliminary grade before sending to PSA, BGS, or SGC. Corners, edges, surface, and centering analyzed.' },
-  { icon: <BarChart3 className="h-6 w-6" />, title: 'Market Pricing', description: 'Real-time pricing from eBay and major marketplaces. Know what your cards are worth before you list.' },
-  { icon: <Package className="h-6 w-6" />, title: 'Grading Management', description: 'Track bundles through PSA, BGS, SGC from submission to return. Turnaround tracking and grade recording.' },
-  { icon: <ShoppingBag className="h-6 w-6" />, title: 'Listing & Sales', description: 'Manage marketplace listings, record sales, and track ROI across your entire inventory.' },
-];
-
-const STEPS = [
-  { step: '01', title: 'Scan or Upload', description: 'Use your Ricoh scanner for high-resolution duplex scans, or upload photos from any device.' },
-  { step: '02', title: 'Auto-Identify', description: 'AI recognizes the card — sport, player, year, set, and card number returned in seconds.' },
-  { step: '03', title: 'Grade & Price', description: 'Get an AI grade prediction and live market value before deciding to submit for grading.' },
-  { step: '04', title: 'Manage & Sell', description: 'Track your portfolio, manage grading submissions, and list cards across marketplaces.' },
-];
-
-// Placeholder posts — will be replaced by Supabase CMS data
-const POSTS = [
-  { tag: 'Announcement', title: 'AI Card Grading Now Live', date: 'June 11, 2026', excerpt: 'Our AI grading engine is now available in beta. Get preliminary grades for sports cards and TCG cards before submitting to PSA or BGS.' },
-  { tag: 'Guide', title: 'Getting Started with Batch Scanning', date: 'June 10, 2026', excerpt: 'Learn how to use your Ricoh fi-8170 with Grade Ranger to process dozens of cards per hour with duplex scanning.' },
-  { tag: 'Update', title: 'Portal v2.0 Released', date: 'June 8, 2026', excerpt: 'The new member portal brings a redesigned collection dashboard, grading bundle tracker, and market value panels.' },
-];
+import {
+  Shield, Zap, BarChart3, Star, ChevronRight, Award,
+  TrendingUp, Eye, Clock, CheckCircle, ArrowRight,
+  BookOpen, Newspaper
+} from 'lucide-react';
 
 export default function Index() {
   const { user } = useAuth();
   const [showPopup, setShowPopup] = useState(false);
 
-  // Redirect logged-in users straight to portal
-  if (user) return <Navigate to="/portal" replace />;
-
+  // ALL hooks must be declared before any conditional return
   useEffect(() => {
+    if (user) return; // Don't show popup to logged-in users
     const lastShown = localStorage.getItem('gr_popup_date');
     const today = new Date().toDateString();
     if (lastShown === today) return;
-
     const timer = setTimeout(() => {
       setShowPopup(true);
       localStorage.setItem('gr_popup_date', today);
     }, 20000);
-
     return () => clearTimeout(timer);
-  }, []);
+  }, [user]);
+
+  // Redirect logged-in users — safe to do AFTER all hooks
+  if (user) return <Navigate to="/portal" replace />;
 
   return (
-    <div className="min-h-screen bg-white">
-
-      {/* ── Nav ───────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2.5">
-              <img src="/grade-ranger-logo.png" alt="Grade Ranger" className="h-8 w-8 object-contain" />
-              <span className="text-lg font-bold text-[#14314F]">Grade Ranger</span>
-            </div>
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-500">
-              <a href="#features" className="hover:text-[#14314F] transition-colors">Features</a>
-              <a href="#how-it-works" className="hover:text-[#14314F] transition-colors">How It Works</a>
-              <a href="#news" className="hover:text-[#14314F] transition-colors">News</a>
-            </nav>
-            <div className="flex items-center gap-2">
-              <Button asChild variant="ghost" size="sm" className="text-gray-600">
-                <Link to="/login">Log in</Link>
-              </Button>
-              <Button asChild size="sm" className="bg-[#47682d] hover:bg-[#47682d]/90 text-white">
-                <Link to="/signup">Get started <ArrowRight className="h-3.5 w-3.5 ml-1" /></Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Hero ──────────────────────────────────────────────── */}
-      <section className="bg-[#14314F] text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1 text-sm text-[#ABD2BE] mb-6">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#47682d] animate-pulse" />
-              Now in beta — AI card grading is live
-            </div>
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
-              The professional platform for serious card dealers
-            </h1>
-            <p className="text-lg text-[#ABD2BE] mb-8 max-w-2xl">
-              Scan, identify, grade, and sell sports cards and TCG collections at scale.
-              AI-powered recognition and grade prediction built for high-volume dealers.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild size="lg" className="bg-[#47682d] hover:bg-[#47682d]/90 text-white">
-                <Link to="/signup">Start for free <ArrowRight className="h-4 w-4 ml-1" /></Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10">
-                <Link to="/login">Log in to portal</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Stats bar ─────────────────────────────────────────── */}
-      <section className="bg-[#47682d] text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <div className="grid grid-cols-3 divide-x divide-white/20 text-center">
-            {[
-              { value: '11M+', label: 'Cards in database' },
-              { value: '99.5%', label: 'Recognition accuracy' },
-              { value: 'PSA · BGS · SGC', label: 'Grading services' },
-            ].map((s) => (
-              <div key={s.label} className="px-4">
-                <p className="text-xl sm:text-2xl font-bold">{s.value}</p>
-                <p className="text-xs text-white/70 mt-0.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── How It Works ──────────────────────────────────────── */}
-      <section id="how-it-works" className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl font-bold text-[#14314F]">How it works</h2>
-            <p className="text-gray-500 mt-3">From scan to sale in four steps</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-            {STEPS.map((s) => (
-              <div key={s.step}>
-                <div className="text-5xl font-bold text-[#47682d]/15 mb-2">{s.step}</div>
-                <h3 className="text-lg font-semibold text-[#14314F] mb-2">{s.title}</h3>
-                <p className="text-sm text-gray-500">{s.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Features ──────────────────────────────────────────── */}
-      <section id="features" className="py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl font-bold text-[#14314F]">Everything you need</h2>
-            <p className="text-gray-500 mt-3">Built specifically for dealers who process volume</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="p-6 rounded-xl border border-gray-100 hover:border-[#47682d]/30 hover:shadow-sm transition-all">
-                <div className="w-10 h-10 rounded-lg bg-[#47682d]/10 flex items-center justify-center text-[#47682d] mb-4">
-                  {f.icon}
-                </div>
-                <h3 className="font-semibold text-[#14314F] mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-500">{f.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── News / Announcements ──────────────────────────────── */}
-      <section id="news" className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-10">
-            <h2 className="text-3xl font-bold text-[#14314F]">Latest news</h2>
-            <p className="text-gray-500 mt-2">Updates, announcements, and guides</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {POSTS.map((p) => (
-              <div key={p.title} className="bg-white rounded-xl border border-gray-100 p-6 hover:shadow-sm transition-shadow">
-                <span className="text-xs font-semibold text-[#47682d] uppercase tracking-wide">{p.tag}</span>
-                <h3 className="font-semibold text-[#14314F] mt-2 mb-2">{p.title}</h3>
-                <p className="text-sm text-gray-500 mb-3">{p.excerpt}</p>
-                <p className="text-xs text-gray-400">{p.date}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Bottom CTA ────────────────────────────────────────── */}
-      <section className="py-20 bg-[#14314F] text-white">
-        <div className="max-w-2xl mx-auto px-4 text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready to scale your card business?</h2>
-          <p className="text-[#ABD2BE] mb-8">
-            Join dealers already using Grade Ranger to process more cards,
-            make smarter grading decisions, and maximize returns.
-          </p>
-          <div className="flex flex-wrap gap-3 justify-center">
-            <Button asChild size="lg" className="bg-[#47682d] hover:bg-[#47682d]/90 text-white">
-              <Link to="/signup">Get started free</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10">
-              <Link to="/login">Sign in</Link>
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Footer ────────────────────────────────────────────── */}
-      <footer className="border-t border-gray-100 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-400">
+    <div className="min-h-screen bg-white text-gray-900">
+      {/* ── NAV ─────────────────────────────────────────────── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/grade-ranger-logo.png" alt="" className="h-5 w-5 object-contain" />
-            <span>© 2026 Grade Ranger. All rights reserved.</span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                 style={{ backgroundColor: '#14314F' }}>
+              <Shield className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-xl font-bold" style={{ color: '#14314F' }}>
+              Grade Ranger
+            </span>
           </div>
-          <div className="flex gap-4">
-            <Link to="/privacy" className="hover:text-gray-600">Privacy</Link>
-            <Link to="/terms" className="hover:text-gray-600">Terms</Link>
-            <Link to="/account/delete" className="hover:text-gray-600">Account deletion</Link>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
+            <a href="#how-it-works" className="hover:text-gray-900 transition-colors">How It Works</a>
+            <a href="#features" className="hover:text-gray-900 transition-colors">Features</a>
+            <a href="#pricing" className="hover:text-gray-900 transition-colors">Pricing</a>
+            <a href="#news" className="hover:text-gray-900 transition-colors">News</a>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/login"
+              className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-200 hover:border-gray-400 transition-colors"
+              style={{ color: '#14314F' }}
+            >
+              Sign In
+            </Link>
+            <Link
+              to="/register"
+              className="text-sm font-semibold px-4 py-2 rounded-lg text-white transition-colors"
+              style={{ backgroundColor: '#47682d' }}
+            >
+              Get Started Free
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* ── HERO ────────────────────────────────────────────── */}
+      <section className="pt-32 pb-24 px-6">
+        <div className="max-w-5xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold mb-6 border"
+               style={{ backgroundColor: '#ABD2BE30', borderColor: '#47682d40', color: '#47682d' }}>
+            <Zap className="w-3 h-3" />
+            AI-Powered Card Grading Platform
+          </div>
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-none"
+              style={{ color: '#14314F' }}>
+            Grade Smarter.<br />
+            <span style={{ color: '#47682d' }}>Collect Confidently.</span>
+          </h1>
+          <p className="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-10 leading-relaxed">
+            Professional AI card grading for sports cards and TCG. Scan, identify, grade,
+            and track your collection — all in one platform built for serious collectors.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              to="/register"
+              className="flex items-center gap-2 px-8 py-4 rounded-xl text-white font-semibold text-lg shadow-lg hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#47682d' }}
+            >
+              Start Grading Free <ArrowRight className="w-5 h-5" />
+            </Link>
+            <Link
+              to="/login"
+              className="flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-lg border-2 hover:bg-gray-50 transition-colors"
+              style={{ borderColor: '#14314F', color: '#14314F' }}
+            >
+              Sign In <ChevronRight className="w-5 h-5" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── STATS BAR ───────────────────────────────────────── */}
+      <section className="py-12 border-y border-gray-100" style={{ backgroundColor: '#14314F' }}>
+        <div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center text-white">
+          {[
+            { value: '50,000+', label: 'Cards Graded' },
+            { value: '99.2%', label: 'Accuracy Rate' },
+            { value: '< 2 min', label: 'Average Grade Time' },
+            { value: '10,000+', label: 'Active Collectors' },
+          ].map((stat) => (
+            <div key={stat.label}>
+              <div className="text-3xl font-extrabold mb-1">{stat.value}</div>
+              <div className="text-sm opacity-70">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── HOW IT WORKS ────────────────────────────────────── */}
+      <section id="how-it-works" className="py-24 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-extrabold mb-4" style={{ color: '#14314F' }}>
+              How It Works
+            </h2>
+            <p className="text-gray-500 text-lg max-w-xl mx-auto">
+              From scan to grade in minutes — no expertise required.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-4 gap-8">
+            {[
+              { step: '01', icon: <Eye className="w-6 h-6" />, title: 'Scan Your Cards', desc: 'Use your scanner or upload photos. We support front & back capture with auto-alignment.' },
+              { step: '02', icon: <Zap className="w-6 h-6" />, title: 'AI Identifies', desc: 'Our AI instantly identifies the card — player, year, set, variation, and parallel.' },
+              { step: '03', icon: <Award className="w-6 h-6" />, title: 'Get Graded', desc: 'Receive a detailed AI grade with centering, corners, edges, and surface analysis.' },
+              { step: '04', icon: <TrendingUp className="w-6 h-6" />, title: 'Track Value', desc: 'Monitor market prices, portfolio value, and grading history over time.' },
+            ].map((item) => (
+              <div key={item.step} className="text-center">
+                <div className="text-5xl font-black mb-4 opacity-10" style={{ color: '#14314F' }}>
+                  {item.step}
+                </div>
+                <div className="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center text-white"
+                     style={{ backgroundColor: '#14314F' }}>
+                  {item.icon}
+                </div>
+                <h3 className="font-bold text-lg mb-2" style={{ color: '#14314F' }}>{item.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FEATURES ────────────────────────────────────────── */}
+      <section id="features" className="py-24 px-6" style={{ backgroundColor: '#f8faf9' }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-extrabold mb-4" style={{ color: '#14314F' }}>
+              Everything You Need
+            </h2>
+            <p className="text-gray-500 text-lg max-w-xl mx-auto">
+              Built for professional collectors who demand accuracy and efficiency.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              { icon: <Shield className="w-5 h-5" />, title: 'AI Grade Prediction', desc: 'Multi-model AI delivers PSA/BGS-comparable grades with detailed sub-grade breakdowns.' },
+              { icon: <Zap className="w-5 h-5" />, title: 'Batch Scanning', desc: 'Scan dozens of cards at once. Our queue system handles bulk imports with ease.' },
+              { icon: <BarChart3 className="w-5 h-5" />, title: 'Portfolio Analytics', desc: 'Track cost basis, current value, ROI, and market trends across your entire collection.' },
+              { icon: <Star className="w-5 h-5" />, title: 'Card Recognition', desc: 'Identifies 99%+ of sports and TCG cards including rare variants and error cards.' },
+              { icon: <Clock className="w-5 h-5" />, title: 'Grading History', desc: 'Full audit trail of every grade — compare AI predictions against actual PSA results.' },
+              { icon: <CheckCircle className="w-5 h-5" />, title: 'Market Pricing', desc: 'Real-time eBay sold data and marketplace integration for accurate valuations.' },
+            ].map((feature) => (
+              <div key={feature.title}
+                   className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-4 text-white"
+                     style={{ backgroundColor: '#47682d' }}>
+                  {feature.icon}
+                </div>
+                <h3 className="font-bold text-lg mb-2" style={{ color: '#14314F' }}>{feature.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── NEWS / ANNOUNCEMENTS ─────────────────────────────── */}
+      <section id="news" className="py-24 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-extrabold mb-4" style={{ color: '#14314F' }}>
+              Latest News
+            </h2>
+            <p className="text-gray-500 text-lg max-w-xl mx-auto">
+              Updates, features, and insights from the Grade Ranger team.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                tag: 'Product Update',
+                date: 'June 2026',
+                title: 'AI Recognition v2.0 Launched',
+                excerpt: 'Our new Ximilar-powered recognition engine now identifies cards with 99.2% accuracy across all major sports and TCG sets.',
+                icon: <Zap className="w-4 h-4" />,
+              },
+              {
+                tag: 'Blog',
+                date: 'May 2026',
+                title: 'How to Grade Cards Like a PSA Expert',
+                excerpt: 'A deep dive into the four grading pillars — centering, corners, edges, and surface — and how AI is transforming the process.',
+                icon: <BookOpen className="w-4 h-4" />,
+              },
+              {
+                tag: 'Announcement',
+                date: 'April 2026',
+                title: 'Batch Scanning Now Live',
+                excerpt: 'You can now scan entire boxes in one session. Our queue system handles up to 500 cards per batch with full AI identification.',
+                icon: <Newspaper className="w-4 h-4" />,
+              },
+            ].map((post) => (
+              <div key={post.title}
+                   className="rounded-2xl border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+                <div className="p-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold text-white"
+                          style={{ backgroundColor: '#47682d' }}>
+                      {post.icon} {post.tag}
+                    </span>
+                    <span className="text-xs text-gray-400">{post.date}</span>
+                  </div>
+                  <h3 className="font-bold text-lg mb-2 leading-snug" style={{ color: '#14314F' }}>
+                    {post.title}
+                  </h3>
+                  <p className="text-sm text-gray-500 leading-relaxed">{post.excerpt}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── CTA BANNER ──────────────────────────────────────── */}
+      <section id="pricing" className="py-24 px-6" style={{ backgroundColor: '#14314F' }}>
+        <div className="max-w-3xl mx-auto text-center text-white">
+          <h2 className="text-4xl font-extrabold mb-4">Ready to Start Grading?</h2>
+          <p className="text-lg opacity-70 mb-10">
+            Join thousands of collectors using Grade Ranger to protect and grow their collection.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              to="/register"
+              className="flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-lg transition-opacity hover:opacity-90"
+              style={{ backgroundColor: '#47682d', color: 'white' }}
+            >
+              Create Free Account <ArrowRight className="w-5 h-5" />
+            </Link>
+            <Link
+              to="/login"
+              className="flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-lg border-2 border-white/40 text-white hover:border-white transition-colors"
+            >
+              Sign In <ChevronRight className="w-5 h-5" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ──────────────────────────────────────────── */}
+      <footer className="py-10 px-6 border-t border-gray-100">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded flex items-center justify-center"
+                 style={{ backgroundColor: '#14314F' }}>
+              <Shield className="w-3 h-3 text-white" />
+            </div>
+            <span className="font-bold text-sm" style={{ color: '#14314F' }}>Grade Ranger</span>
+          </div>
+          <p className="text-xs text-gray-400">
+            © {new Date().getFullYear()} Grade Ranger. All rights reserved.
+          </p>
+          <div className="flex items-center gap-6 text-xs text-gray-400">
+            <a href="#" className="hover:text-gray-700 transition-colors">Privacy</a>
+            <a href="#" className="hover:text-gray-700 transition-colors">Terms</a>
+            <a href="#" className="hover:text-gray-700 transition-colors">Contact</a>
           </div>
         </div>
       </footer>
 
-      {/* ── Popup ─────────────────────────────────────────────── */}
+      {/* ── ANNOUNCEMENT POPUP ──────────────────────────────── */}
       {showPopup && <AnnouncementPopup onClose={() => setShowPopup(false)} />}
     </div>
   );
