@@ -75,14 +75,15 @@ serve(async (req) => {
       const hints = CATEGORY_HINTS[type] ?? CATEGORY_HINTS.sport
       return images.map((img: { id: string; base64?: string; url?: string }) => ({
         _id: img.id,
-        ...(img.base64 ? { _base64: img.base64 } : { _url: img.url }),
+        // AFTER CLEANING BASE64, WE NEED TO REMOVE THE DATA URL PREFIX
+        ...(img.base64 ? { _base64: cleanBase64(img.base64) } : { _url: img.url }),
         ...hints,
       }))
     }
 
-    const callEndpoint = async (type: string) => {
+    const callEndpoint = async (type: string, inputRecords?: any[]) => {
       const endpoint = ENDPOINTS[type as keyof typeof ENDPOINTS]
-      const records = buildRecords(type)
+      const records = inputRecords ?? buildRecords(type)
       console.log(`Calling ${endpoint} with ${records.length} records, hints: ${JSON.stringify(CATEGORY_HINTS[type])}`)
 
       const res = await fetch(endpoint, {
@@ -109,20 +110,23 @@ serve(async (req) => {
       cardType === 'sport' ? ['sport', 'ocr'] :
       ['sport', 'tcg', 'ocr'] // auto
 
-    let lastResult: any = null
-
-    for (const type of sequence) {
-      const data = await callEndpoint(type)
-      if (!data) continue
-
-      if (hasIdentification(data)) {
-        console.log(`Successfully identified via ${type}`)
-        return respond({ ...data, _source: type })
+      let lastResult: any = null
+      let lastRecords: any[] | undefined = undefined
+      
+      for (const type of sequence) {
+        // Pass prior step's records to OCR so it has _objects populated
+        const data = await callEndpoint(type, type === 'ocr' ? lastRecords : undefined)
+        if (!data) continue
+      
+        if (hasIdentification(data)) {
+          console.log(`Successfully identified via ${type}`)
+          return respond({ ...data, _source: type })
+        }
+      
+        lastResult = data
+        lastRecords = data.records  // save for next step (_objects will be present)
+        console.log(`${type} returned no identification, trying next`)
       }
-
-      lastResult = data
-      console.log(`${type} returned no identification, trying next`)
-    }
 
     // Return last result even if unidentified — UI handles it gracefully
     return respond({ ...(lastResult ?? { records: [] }), _source: 'unidentified' })
