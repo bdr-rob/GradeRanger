@@ -1,249 +1,305 @@
-import { useState } from 'react';
-import { CheckCircle, Edit3, AlertTriangle, Loader2, Save, ChevronDown } from 'lucide-react';
-import { RecognizedCard } from '@/lib/ximilar';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
+import { RecognizedCard } from '@/lib/ximilar'
+import { lookupTcgPrice, TcgPriceResult } from '@/lib/tcgPrice'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
-interface Props {
-  cards: RecognizedCard[];
-  onComplete: () => void;
+const PURCHASE_LOCATIONS = [
+  'eBay', 'PWCC', 'Goldin', 'Heritage Auctions', 'Local Card Shop',
+  'Card Show', 'Facebook Marketplace', 'Whatnot', 'Fanatics', 'Other',
+]
+
+interface CardState {
+  player: string
+  year: string
+  set_name: string
+  card_number: string
+  sport: string
+  parallel: string
+  variation: string
+  company: string
+  purchasePrice: string
+  purchaseLocation: string
 }
 
-export default function CardReviewTable({ cards: initial, onComplete }: Props) {
-  const { user } = useAuth();
-  const [cards, setCards] = useState<RecognizedCard[]>(initial);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+interface Props {
+  cards: RecognizedCard[]
+  cardType: 'sport' | 'tcg'
+  onSaved: () => void
+}
 
-  const update = (localId: string, patch: Partial<RecognizedCard>) =>
-    setCards((prev) =>
-      prev.map((c) => (c.localId === localId ? { ...c, ...patch } : c))
-    );
+function initState(card: RecognizedCard): CardState {
+  return {
+    player:           card.bestMatch?.player       ?? '',
+    year:             card.bestMatch?.year         ?? '',
+    set_name:         card.bestMatch?.set_name     ?? '',
+    card_number:      card.bestMatch?.card_number  ?? '',
+    sport:            card.bestMatch?.sport        ?? '',
+    parallel:         card.bestMatch?.parallel     ?? '',
+    variation:        card.bestMatch?.variation    ?? '',
+    company:          card.bestMatch?.company      ?? '',
+    purchasePrice:    card.purchasePrice           ?? '',
+    purchaseLocation: card.purchaseLocation        ?? '',
+  }
+}
 
-  const updateMatch = (localId: string, field: string, value: string) =>
-    setCards((prev) =>
-      prev.map((c) =>
-        c.localId === localId
-          ? { ...c, bestMatch: c.bestMatch ? { ...c.bestMatch, [field]: value } : c.bestMatch }
-          : c
+export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
+  const { user } = useAuth()
+  const [cardStates, setCardStates] = useState<CardState[]>(() => cards.map(initState))
+  const [saving, setSaving] = useState(false)
+  const [backVisible, setBackVisible] = useState<boolean[]>(() => cards.map(() => false))
+  const [marketPrices, setMarketPrices] = useState<Record<string, TcgPriceResult[]>>({})
+
+  // Auto-fetch TCG market prices after identification
+  useEffect(() => {
+    if (cardType !== 'tcg') return
+    cards.forEach(async (card) => {
+      if (!card.bestMatch?.player) return
+      const prices = await lookupTcgPrice(
+        card.bestMatch.player,
+        card.bestMatch.sport || 'pokemon',
+        card.bestMatch.set_name
       )
-    );
+      if (prices.length > 0) {
+        setMarketPrices((prev) => ({ ...prev, [card.localId]: prices }))
+      }
+    })
+  }, [cards, cardType])
 
-  const confidenceColor = (conf: number) => {
-    if (conf >= 0.85) return '#47682d';
-    if (conf >= 0.6) return '#d97706';
-    return '#ef4444';
-  };
+  const update = (index: number, field: keyof CardState, value: string) => {
+    setCardStates((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], [field]: value }
+      return next
+    })
+  }
 
-  const confidenceLabel = (conf: number) => {
-    if (conf >= 0.85) return 'High';
-    if (conf >= 0.6) return 'Medium';
-    return 'Low';
-  };
+  const toggleBack = (index: number) => {
+    setBackVisible((prev) => {
+      const next = [...prev]
+      next[index] = !next[index]
+      return next
+    })
+  }
 
   const handleSave = async () => {
-    setSaving(true);
+    if (!user) return
+    setSaving(true)
+
     try {
-      // 1. Upload images to Supabase storage
-      const insertRows = await Promise.all(
-        cards.map(async (card) => {
-          const filename = `${user!.id}/${Date.now()}-${card.localId}.jpg`;
-          const blob = await fetch(card.image.preview).then((r) => r.blob());
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i]
+        const state = cardStates[i]
 
-          const { data: uploadData, error: uploadErr } = await supabase.storage
+        let frontUrl: string | null = null
+        let backUrl: string | null = null
+
+        if (card.image.base64) {
+          const frontBytes = Uint8Array.from(atob(card.image.base64), (c) => c.charCodeAt(0))
+          const frontPath = `${user.id}/${card.localId}_front.jpg`
+          const { error: uploadErr } = await supabase.storage
             .from('card-images')
-            .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
+            .upload(frontPath, frontBytes, { contentType: 'image/jpeg', upsert: true })
+          if (!uploadErr) {
+            const { data } = supabase.storage.from('card-images').getPublicUrl(frontPath)
+            frontUrl = data.publicUrl
+          }
+        }
 
-          if (uploadErr) throw uploadErr;
-
-          const { data: urlData } = supabase.storage
+        if (card.image.backBase64) {
+          const backBytes = Uint8Array.from(atob(card.image.backBase64), (c) => c.charCodeAt(0))
+          const backPath = `${user.id}/${card.localId}_back.jpg`
+          const { error: uploadErr } = await supabase.storage
             .from('card-images')
-            .getPublicUrl(uploadData.path);
+            .upload(backPath, backBytes, { contentType: 'image/jpeg', upsert: true })
+          if (!uploadErr) {
+            const { data } = supabase.storage.from('card-images').getPublicUrl(backPath)
+            backUrl = data.publicUrl
+          }
+        }
 
-          return {
-            user_id: user!.id,
-            image_front: urlData.publicUrl,
-            player_name: card.bestMatch?.player ?? card.bestMatch?.name ?? 'Unknown',
-            card_year: card.bestMatch?.year ?? null,
-            card_set: card.bestMatch?.set_name ?? null,
-            card_number: card.bestMatch?.card_number ?? null,
-            sport: card.bestMatch?.sport ?? null,
-            parallel: card.bestMatch?.parallel ?? null,
-            variation: card.bestMatch?.variation ?? null,
-            purchase_price: card.purchasePrice ? parseFloat(card.purchasePrice) : null,
-            purchase_location: card.purchaseLocation || null,
-            ximilar_confidence: card.confidence,
-            status: 'identified',
-          };
+        const { error: insertErr } = await supabase.from('cards').insert({
+          user_id:            user.id,
+          player_name:        state.player       || null,
+          year:               state.year         || null,
+          card_set:           state.set_name     || null,
+          card_number:        state.card_number  || null,
+          sport:              state.sport        || null,
+          parallel:           state.parallel     || null,
+          variation:          state.variation    || null,
+          company:            state.company      || null,
+          purchase_price:     state.purchasePrice ? parseFloat(state.purchasePrice) : null,
+          purchase_location:  state.purchaseLocation || null,
+          front_image_url:    frontUrl,
+          back_image_url:     backUrl,
+          ximilar_confidence: card.confidence   || null,
+          status:             'owned',
         })
-      );
 
-      const { error: insertErr } = await supabase.from('cards').insert(insertRows);
-      if (insertErr) throw insertErr;
+        if (insertErr) {
+          alert(`Save failed: ${insertErr.message}`)
+          setSaving(false)
+          return
+        }
+      }
 
-      setSaved(true);
-      setTimeout(onComplete, 1500);
-    } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
+      onSaved()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Save failed')
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
-
-  if (saved) {
-    return (
-      <div className="text-center py-20">
-        <CheckCircle className="w-14 h-14 mx-auto mb-4" style={{ color: '#47682d' }} />
-        <h3 className="text-xl font-bold mb-2" style={{ color: '#14314F' }}>
-          {cards.length} Card{cards.length !== 1 ? 's' : ''} Saved!
-        </h3>
-        <p className="text-gray-500 text-sm">Redirecting to your portfolio…</p>
-      </div>
-    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-bold text-lg" style={{ color: '#14314F' }}>
-            Review Identified Cards
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Edit any fields before saving. Add purchase details per card.
-          </p>
+          <h2 className="text-xl font-bold text-[#14314F]">Review Identified Cards</h2>
+          <p className="text-sm text-muted-foreground">Edit any fields before saving. Add purchase details per card.</p>
         </div>
-        <button
+        <Button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-60 transition-opacity hover:opacity-90"
-          style={{ backgroundColor: '#47682d' }}
+          className="bg-[#47682d] hover:bg-[#3a5525] text-white"
         >
-          {saving ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
-          ) : (
-            <><Save className="w-4 h-4" /> Save {cards.length} Cards</>
-          )}
-        </button>
+          <Save className="w-4 h-4 mr-2" />
+          {saving ? 'Saving...' : `Save ${cards.length} Card${cards.length !== 1 ? 's' : ''}`}
+        </Button>
       </div>
 
       <div className="space-y-4">
-        {cards.map((card, index) => (
-          <div
-            key={card.localId}
-            className="rounded-2xl border overflow-hidden"
-            style={{ borderColor: '#14314F15' }}
-          >
-            <div className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold"
-                 style={{ backgroundColor: '#14314F08', color: '#14314F' }}>
-              <span className="w-5 h-5 rounded-full text-white flex items-center justify-center text-[10px]"
-                    style={{ backgroundColor: '#14314F' }}>
-                {index + 1}
-              </span>
-              Card #{index + 1}
-              {card.confidence > 0 && (
-                <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[10px] font-bold"
-                      style={{ backgroundColor: confidenceColor(card.confidence) }}>
-                  {confidenceLabel(card.confidence)} — {Math.round(card.confidence * 100)}%
-                </span>
-              )}
-              {!card.bestMatch && (
-                <span className="ml-auto flex items-center gap-1 text-amber-600">
-                  <AlertTriangle className="w-3 h-3" /> Not identified — fill in manually
-                </span>
-              )}
-            </div>
+        {cards.map((card, i) => {
+          const state = cardStates[i]
+          const identified = !!card.bestMatch
+          const hasBack = !!card.image.backPreview
+          const marketPrice = marketPrices[card.localId]?.[0]
 
-            <div className="p-4 grid grid-cols-1 md:grid-cols-[80px_1fr_1fr] gap-4">
-              {/* Thumbnail */}
-              <div className="w-20 h-28 rounded-lg overflow-hidden shrink-0 shadow-sm">
-                <img
-                  src={card.image.preview}
-                  alt="Card"
-                  className="w-full h-full object-cover"
-                />
+          return (
+            <div key={card.localId} className="border rounded-lg p-4 bg-white shadow-sm">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-full bg-[#14314F] text-white flex items-center justify-center text-sm font-medium">
+                    {i + 1}
+                  </span>
+                  <span className="font-semibold text-[#14314F]">Card #{i + 1}</span>
+                </div>
+                {identified ? (
+                  <Badge className="bg-green-100 text-green-700 border-green-200">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                    Identified ({Math.round(card.confidence * 100)}% confidence)
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Not identified — fill in manually
+                  </Badge>
+                )}
               </div>
 
-              {/* Card details */}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                {[
-                  { label: 'Player / Name', field: 'player' },
-                  { label: 'Year', field: 'year' },
-                  { label: 'Set', field: 'set_name' },
-                  { label: 'Card #', field: 'card_number' },
-                  { label: 'Sport / Category', field: 'sport' },
-                  { label: 'Parallel / Variation', field: 'parallel' },
-                ].map(({ label, field }) => (
-                  <div key={field}>
-                    <label className="block text-[10px] font-semibold text-gray-400 mb-0.5 uppercase tracking-wide">
-                      {label}
-                    </label>
-                    <input
-                      type="text"
-                      value={(card.bestMatch as any)?.[field] ?? ''}
-                      onChange={(e) => updateMatch(card.localId, field, e.target.value)}
-                      placeholder="—"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1"
-                      style={{ '--tw-ring-color': '#47682d' } as React.CSSProperties}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Purchase details */}
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-[10px] font-semibold text-gray-400 mb-0.5 uppercase tracking-wide">
-                    Purchase Price ($)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={card.purchasePrice}
-                    onChange={(e) => update(card.localId, { purchasePrice: e.target.value })}
-                    placeholder="0.00"
-                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1"
-                    style={{ '--tw-ring-color': '#47682d' } as React.CSSProperties}
+              <div className="flex gap-4">
+                {/* Image */}
+                <div className="flex-shrink-0">
+                  <img
+                    src={backVisible[i] && card.image.backPreview ? card.image.backPreview : card.image.preview}
+                    alt={backVisible[i] ? 'Card back' : 'Card front'}
+                    className="w-24 h-32 object-cover rounded border"
                   />
+                  {hasBack && (
+                    <button
+                      onClick={() => toggleBack(i)}
+                      className="mt-1 w-24 text-xs text-center text-[#14314F] underline"
+                    >
+                      {backVisible[i] ? 'Show front' : 'Show back'}
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-gray-400 mb-0.5 uppercase tracking-wide">
-                    Purchase Location
-                  </label>
-                  <select
-                    value={card.purchaseLocation}
-                    onChange={(e) => update(card.localId, { purchaseLocation: e.target.value })}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 bg-white"
-                    style={{ '--tw-ring-color': '#47682d' } as React.CSSProperties}
-                  >
-                    <option value="">Select location…</option>
-                    <option value="eBay">eBay</option>
-                    <option value="PWCC">PWCC</option>
-                    <option value="Local Shop">Local Shop</option>
-                    <option value="Card Show">Card Show</option>
-                    <option value="Private Sale">Private Sale</option>
-                    <option value="Pack">Pack / Box Break</option>
-                    <option value="Other">Other</option>
-                  </select>
+
+                {/* Fields */}
+                <div className="flex-1 grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Player / Name</Label>
+                    <Input value={state.player} onChange={(e) => update(i, 'player', e.target.value)} placeholder="e.g. Michael Jordan" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Year</Label>
+                    <Input value={state.year} onChange={(e) => update(i, 'year', e.target.value)} placeholder="e.g. 1986" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Price ($)</Label>
+                    <Input type="number" value={state.purchasePrice} onChange={(e) => update(i, 'purchasePrice', e.target.value)} placeholder="0.00" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Set</Label>
+                    <Input value={state.set_name} onChange={(e) => update(i, 'set_name', e.target.value)} placeholder="e.g. Fleer" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Card #</Label>
+                    <Input value={state.card_number} onChange={(e) => update(i, 'card_number', e.target.value)} placeholder="e.g. 57" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Location</Label>
+                    <Select value={state.purchaseLocation} onValueChange={(v) => update(i, 'purchaseLocation', v)}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select location..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PURCHASE_LOCATIONS.map((loc) => (
+                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Sport / Category</Label>
+                    <Input value={state.sport} onChange={(e) => update(i, 'sport', e.target.value)} placeholder="e.g. Basketball" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Parallel / Variation</Label>
+                    <Input value={state.parallel} onChange={(e) => update(i, 'parallel', e.target.value)} placeholder="e.g. Gold Refractor" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Company</Label>
+                    <Input value={state.company} onChange={(e) => update(i, 'company', e.target.value)} placeholder="e.g. Topps" className="mt-1" />
+                  </div>
                 </div>
               </div>
+
+              {/* ← Market price goes HERE, full width, below the fields */}
+              {cardType === 'tcg' && marketPrice && (
+                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                  <span className="font-medium text-blue-800">Market Price Reference: </span>
+                  <span className="text-blue-700">
+                    Market: ${marketPrice.market_price?.toFixed(2) ?? '—'} ·{' '}
+                    Low: ${marketPrice.low_price?.toFixed(2) ?? '—'} ·{' '}
+                    Median: ${marketPrice.median_price?.toFixed(2) ?? '—'}
+                  </span>
+                  <span className="text-blue-500 ml-1">({marketPrice.set_name})</span>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-semibold text-sm disabled:opacity-60 transition-opacity hover:opacity-90"
-        style={{ backgroundColor: '#47682d' }}
-      >
-        {saving ? (
-          <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
-        ) : (
-          <><Save className="w-4 h-4" /> Save All {cards.length} Cards to Portfolio</>
-        )}
-      </button>
+      <div className="mt-6">
+        <Button
+          onClick={handleSave}
+          disabled={saving}
+          size="lg"
+          className="w-full bg-[#47682d] hover:bg-[#3a5525] text-white"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          {saving ? 'Saving...' : `Save All ${cards.length} Cards to Portfolio`}
+        </Button>
+      </div>
     </div>
-  );
+  )
 }

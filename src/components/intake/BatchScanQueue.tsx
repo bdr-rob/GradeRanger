@@ -1,121 +1,184 @@
-import { useRef, useState, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import { Upload, ScanLine, Trash2, Plus, Loader2, Zap } from 'lucide-react';
-import { ScannedImage } from '@/lib/ximilar';
+import { useCallback, useState } from 'react'
+import { useDropzone } from 'react-dropzone'
+import { v4 as uuidv4 } from 'uuid'
+import { Upload, X, Sparkles, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ScannedImage } from '@/lib/ximilar'
+import { convertTifToJpeg, isTifFile } from '@/lib/tifConverter'
+
+interface RawImage {
+  id: string
+  base64: string
+  preview: string
+}
 
 interface Props {
-  onIdentify: (images: ScannedImage[]) => void;
-  loading: boolean;
+  onIdentify: (images: ScannedImage[]) => void
+  loading: boolean
+}
+
+async function processFile(file: File): Promise<{ base64: string; preview: string }> {
+  if (isTifFile(file)) {
+    return convertTifToJpeg(file)
+  }
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string
+      resolve({ preview: dataUrl, base64: dataUrl.split(',')[1] })
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function BatchScanQueue({ onIdentify, loading }: Props) {
-  const [queue, setQueue] = useState<ScannedImage[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [images, setImages] = useState<RawImage[]>([])
+  const [pairMode, setPairMode] = useState(true)
+  const [converting, setConverting] = useState(false)
 
-  const addFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        const base64 = dataUrl.split(',')[1];
-        setQueue((prev) => [
-          ...prev,
-          { id: uuidv4(), base64, preview: dataUrl },
-        ]);
-      };
-      reader.readAsDataURL(file);
-    });
-  }, []);
+  const onDrop = useCallback(async (accepted: File[]) => {
+    setConverting(true)
+    const converted = await Promise.all(
+      accepted.map(async (f) => {
+        try {
+          const { base64, preview } = await processFile(f)
+          return { id: uuidv4(), base64, preview }
+        } catch (err) {
+          console.error(`Failed to process ${f.name}:`, err)
+          return null
+        }
+      })
+    )
+    setImages((prev) => [...prev, ...(converted.filter(Boolean) as RawImage[])])
+    setConverting(false)
+  }, [])
 
-  const remove = (id: string) =>
-    setQueue((prev) => prev.filter((img) => img.id !== id));
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'image/*': [],
+      'image/tiff': ['.tif', '.tiff'],
+    },
+    multiple: true,
+  })
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    addFiles(e.dataTransfer.files);
-  };
+  const remove = (id: string) => setImages((prev) => prev.filter((img) => img.id !== id))
+
+  const handleIdentify = () => {
+    if (images.length === 0) return
+
+    if (pairMode) {
+      const paired: ScannedImage[] = []
+      for (let i = 0; i < images.length; i += 2) {
+        const front = images[i]
+        const back = images[i + 1]
+        paired.push({
+          id: front.id,
+          base64: front.base64,
+          preview: front.preview,
+          backBase64: back?.base64,
+          backPreview: back?.preview,
+        })
+      }
+      onIdentify(paired)
+    } else {
+      onIdentify(images.map((img) => ({
+        id: img.id,
+        base64: img.base64,
+        preview: img.preview,
+      })))
+    }
+  }
+
+  const cardCount = pairMode ? Math.ceil(images.length / 2) : images.length
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Drop zone */}
       <div
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors hover:border-opacity-80"
-        style={{ borderColor: '#14314F40', backgroundColor: '#f8faf9' }}
+        {...getRootProps()}
+        className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
+          isDragActive
+            ? 'border-[#47682d] bg-green-50'
+            : 'border-gray-300 hover:border-[#14314F] hover:bg-gray-50'
+        }`}
       >
-        <Upload className="w-8 h-8 mx-auto mb-3 opacity-40" style={{ color: '#14314F' }} />
-        <p className="font-semibold text-sm" style={{ color: '#14314F' }}>
-          Drop card images here or click to upload
+        <input {...getInputProps()} />
+        <Upload className="w-8 h-8 mx-auto mb-3 text-gray-400" />
+        <p className="text-sm font-medium text-gray-700">
+          {converting
+            ? 'Converting TIF files...'
+            : isDragActive
+            ? 'Drop images here...'
+            : 'Drag & drop card images, or click to select'}
         </p>
-        <p className="text-xs text-gray-400 mt-1">
-          JPG, PNG — select multiple files for batch scanning
+        <p className="text-xs text-muted-foreground mt-1">
+          JPG, PNG, WEBP, TIF — multiple files supported
         </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => addFiles(e.target.files)}
-        />
       </div>
 
-      {/* Queue grid */}
-      {queue.length > 0 && (
+      {images.length > 0 && (
         <>
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold" style={{ color: '#14314F' }}>
-              {queue.length} card{queue.length !== 1 ? 's' : ''} in queue
-            </p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors hover:bg-gray-50"
-              style={{ borderColor: '#14314F40', color: '#14314F' }}
-            >
-              <Plus className="w-3.5 h-3.5" /> Add More
-            </button>
+          {/* Front/Back pair toggle */}
+          <div
+            className="flex items-center justify-between p-3 rounded-lg border bg-gray-50 cursor-pointer select-none"
+            onClick={() => setPairMode((v) => !v)}
+          >
+            <div>
+              <p className="text-sm font-medium text-gray-800">Front/Back pair mode</p>
+              <p className="text-xs text-muted-foreground">
+                {pairMode
+                  ? `Images grouped as pairs → ${cardCount} card${cardCount !== 1 ? 's' : ''} (odd image = front only)`
+                  : 'Each image = separate card front'}
+              </p>
+            </div>
+            {pairMode
+              ? <ToggleRight className="w-6 h-6 text-[#47682d]" />
+              : <ToggleLeft className="w-6 h-6 text-gray-400" />
+            }
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-            {queue.map((img, i) => (
-              <div key={img.id} className="relative group aspect-[2.5/3.5] rounded-xl overflow-hidden shadow-sm">
-                <img
-                  src={img.preview}
-                  alt={`Card ${i + 1}`}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+          {/* Image grid */}
+          <div className="grid grid-cols-4 gap-3">
+            {images.map((img, idx) => {
+              const pairLabel = pairMode ? (idx % 2 === 0 ? 'Front' : 'Back') : null
+              const cardNum = pairMode ? Math.floor(idx / 2) + 1 : idx + 1
+
+              return (
+                <div key={img.id} className="relative group">
+                  <img
+                    src={img.preview}
+                    alt={`Card ${idx + 1}`}
+                    className="w-full aspect-[2/3] object-cover rounded border"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-0.5 rounded-b">
+                    {pairMode ? `Card ${cardNum} · ${pairLabel}` : `Card ${cardNum}`}
+                  </div>
                   <button
-                    onClick={(e) => { e.stopPropagation(); remove(img.id); }}
-                    className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center transition-opacity"
+                    onClick={() => remove(img.id)}
+                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full hidden group-hover:flex items-center justify-center"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <X className="w-3 h-3" />
                   </button>
                 </div>
-                <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                  {i + 1}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          <button
-            onClick={() => onIdentify(queue)}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-semibold text-sm transition-opacity disabled:opacity-60"
-            style={{ backgroundColor: '#47682d' }}
+          {/* Identify button */}
+          <Button
+            onClick={handleIdentify}
+            disabled={loading || converting || images.length === 0}
+            className="w-full bg-[#47682d] hover:bg-[#3a5525] text-white"
+            size="lg"
           >
-            {loading ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Identifying cards...</>
-            ) : (
-              <><Zap className="w-4 h-4" /> Identify {queue.length} Card{queue.length !== 1 ? 's' : ''} with AI</>
-            )}
-          </button>
+            <Sparkles className="w-4 h-4 mr-2" />
+            {loading
+              ? 'Identifying...'
+              : `Identify ${cardCount} Card${cardCount !== 1 ? 's' : ''} with AI`}
+          </Button>
         </>
       )}
     </div>
-  );
+  )
 }
