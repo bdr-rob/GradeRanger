@@ -58,7 +58,7 @@ function parseIdentification(record: any): { match: XimilarMatch | null; confide
 
 export async function recognizeCards(
   images: ScannedImage[],
-  cardType: CardType = 'sport'
+  cardType: CardType = 'auto'
 ): Promise<RecognizedCard[]> {
   const { data, error } = await supabase.functions.invoke('ximilar-recognize', {
     body: {
