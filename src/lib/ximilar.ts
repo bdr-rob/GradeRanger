@@ -92,3 +92,4 @@ return images.map((img, i) => {
     confirmed: false,
   }
 })
+}
