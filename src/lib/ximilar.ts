@@ -36,7 +36,8 @@ export interface RecognizedCard {
 
 function parseIdentification(record: any): { match: XimilarMatch | null; confidence: number } {
   // Ximilar TCG/Sport returns _identification.best_match
-  const id = record?._identification?.best_match ?? record?._identification ?? record?.identification
+  const cardObj = record?._objects?.[0]
+  const id = cardObj?._identification?.best_match ?? cardObj?._identification ?? record?._identification?.best_match ?? record?._identification
   if (!id) return { match: null, confidence: 0 }
 
   const match: XimilarMatch = {

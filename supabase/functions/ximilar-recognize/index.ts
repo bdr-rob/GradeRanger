@@ -31,7 +31,7 @@ const CATEGORY_HINTS: Record<string, Record<string, string>> = {
 
 function hasIdentification(data: any): boolean {
   return data?.records?.some((r: any) => {
-    const id = r?._identification
+    const id = r?._objects?.[0]?._identification
     if (!id) return false
     const bm = id.best_match ?? id
     return Object.values(bm).some(
