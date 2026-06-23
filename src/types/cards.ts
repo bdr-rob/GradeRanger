@@ -68,6 +68,8 @@ export interface AIReport {
   annotated_back_url?: string;
   raw_response?: Record<string, unknown>;
   status: AIReportStatus;
+  source?: string;
+  condition_label?: string;
   created_at: string;
 }
 
@@ -113,6 +115,8 @@ export interface GradingBundleItem {
   grading_fee?: number;
   official_grade?: string;
   graded_at?: string;
+  quantity?: number;
+  declared_value?: number;
   created_at: string;
   card?: Card;
 }

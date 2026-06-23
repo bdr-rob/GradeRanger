@@ -476,6 +476,11 @@ export default function CardDetail() {
             card={card}
             onRetry={handleRetryAnalysis}
           />
+          {aiReport?.status === 'complete' && (
+            <div className="mt-6 pt-5 border-t border-gray-100">
+              <GradingBundleManager cardId={card.id} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Market ─────────────────────────────────────────────────────────── */}
@@ -490,6 +495,7 @@ export default function CardDetail() {
             <GradingROICalculator
               costBasis={c.purchase_price ?? 0}
               gradedValues={(valuation?.graded_values as Record<string, Record<string, number>> | null) ?? null}
+              aiGrade={aiReport?.overall_grade}
             />
           </div>
         </TabsContent>

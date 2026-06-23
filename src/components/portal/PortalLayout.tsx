@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import {
   LayoutDashboard, ScanLine, Award, List,
-  TrendingUp, Settings, LogOut, Shield, ChevronRight,
+  TrendingUp, Settings, LogOut, Shield, ChevronRight, BookOpen,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/portal/portfolio', label: 'Portfolio', icon: <TrendingUp className="w-4 h-4 shrink-0" /> },
   { to: '/portal/grading', label: 'Grading', icon: <Award className="w-4 h-4 shrink-0" /> },
   { to: '/portal/listings', label: 'Listings', icon: <List className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/catalog', label: 'Catalog', icon: <BookOpen className="w-4 h-4 shrink-0" /> },
   { to: '/portal/admin', label: 'Admin', icon: <Shield className="w-4 h-4 shrink-0" />, adminOnly: true },
 ];
 

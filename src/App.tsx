@@ -36,6 +36,7 @@ import CardDetail from "./pages/portal/CardDetail";
 import ListingsDashboard from "./pages/portal/ListingsDashboard";
 import Admin from "./pages/portal/Admin";
 import PortalPortfolio from "./pages/portal/PortalPortfolio";
+import Catalog from "./pages/portal/Catalog";
 
 
 const queryClient = new QueryClient();
@@ -83,6 +84,7 @@ const App = () => (
                 <Route path="intake" element={<CardIntake />} />
                 <Route path="cards/:id" element={<CardDetail />} />
                 <Route path="grading" element={<GradingDecisionsPage />} />
+                <Route path="catalog" element={<Catalog />} />
                 <Route path="listings" element={<ListingsDashboard />} />
                 <Route path="portfolio" element={<PortalPortfolio />} />
                 <Route path="admin" element={<Admin />} />

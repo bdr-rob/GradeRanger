@@ -169,6 +169,8 @@ CREATE TABLE IF NOT EXISTS ai_reports (
                         CHECK (status IN ('pending','processing','complete','failed')),
   error_code          VARCHAR,
   error_message       TEXT,
+  source              VARCHAR DEFAULT 'ximilar',
+  condition_label     VARCHAR,
   created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -229,6 +231,8 @@ CREATE TABLE IF NOT EXISTS grading_bundle_items (
   grading_fee     DECIMAL(10,2),
   official_grade  VARCHAR,
   graded_at       TIMESTAMPTZ,
+  quantity        INT DEFAULT 1,
+  declared_value  DECIMAL(10,2),
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(bundle_id, card_id)
 );
@@ -318,6 +322,115 @@ CREATE POLICY "Admins manage platform fees" ON grading_fee_schedules
     )
     OR auth.uid() = user_id
   );
+
+-- ── catalog_sets ──────────────────────────────────────────────
+-- Local cache of CardSight's /v1/catalog/sets, synced by the
+-- cardsight-catalog edge function so the Catalog browser page can
+-- search/filter without paginating CardSight live.
+CREATE TABLE IF NOT EXISTS catalog_sets (
+  id              UUID PRIMARY KEY,
+  name            VARCHAR NOT NULL,
+  is_identifiable BOOLEAN NOT NULL DEFAULT FALSE,
+  card_count      INT,
+  parallel_count  INT,
+  release_id      UUID,
+  release_name    VARCHAR,
+  release_year    VARCHAR,
+  synced_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_sets_release_year ON catalog_sets(release_year);
+CREATE INDEX IF NOT EXISTS idx_catalog_sets_name ON catalog_sets USING gin (to_tsvector('english', name || ' ' || coalesce(release_name, '')));
+
+ALTER TABLE catalog_sets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read catalog_sets" ON catalog_sets
+  FOR SELECT USING (true);
+
+CREATE TABLE IF NOT EXISTS catalog_manufacturers (
+  id          UUID PRIMARY KEY,
+  name        VARCHAR NOT NULL,
+  description TEXT,
+  synced_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE catalog_manufacturers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read catalog_manufacturers" ON catalog_manufacturers
+  FOR SELECT USING (true);
+
+CREATE TABLE IF NOT EXISTS catalog_releases (
+  id              UUID PRIMARY KEY,
+  name            VARCHAR NOT NULL,
+  year            VARCHAR,
+  is_identifiable BOOLEAN NOT NULL DEFAULT FALSE,
+  description     TEXT,
+  manufacturer_id UUID,
+  segment_id      UUID,
+  synced_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_releases_year ON catalog_releases(year);
+CREATE INDEX IF NOT EXISTS idx_catalog_releases_manufacturer ON catalog_releases(manufacturer_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_releases_name ON catalog_releases USING gin (to_tsvector('english', name));
+
+ALTER TABLE catalog_releases ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read catalog_releases" ON catalog_releases
+  FOR SELECT USING (true);
+
+-- Cache-on-read: populated lazily by cardsight-catalog's release_detail
+-- action the first time a release's checklist is requested, since syncing
+-- every card up front (millions of rows) isn't worth it.
+CREATE TABLE IF NOT EXISTS release_cards_cache (
+  release_id UUID PRIMARY KEY,
+  cards      JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE release_cards_cache ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read release_cards_cache" ON release_cards_cache
+  FOR SELECT USING (true);
+
+-- Lets PostgREST embed catalog_releases for segment-filtered queries
+-- (catalog_sets.select('*, catalog_releases!inner(segment_id)')) instead of
+-- filtering with a huge .in(release_id, [...]) list client-side.
+ALTER TABLE catalog_sets
+  ADD CONSTRAINT catalog_sets_release_id_fkey
+  FOREIGN KEY (release_id) REFERENCES catalog_releases(id) NOT VALID;
+
+CREATE TABLE IF NOT EXISTS catalog_attributes (
+  id          UUID PRIMARY KEY,
+  name        VARCHAR,
+  short_name  VARCHAR,
+  description TEXT,
+  card_count  INT,
+  synced_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE catalog_attributes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read catalog_attributes" ON catalog_attributes
+  FOR SELECT USING (true);
+
+CREATE TABLE IF NOT EXISTS catalog_fields (
+  id          UUID PRIMARY KEY,
+  key         VARCHAR NOT NULL,
+  name        VARCHAR,
+  description TEXT,
+  usage_count INT,
+  synced_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE catalog_fields ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read catalog_fields" ON catalog_fields
+  FOR SELECT USING (true);
+
+CREATE TABLE IF NOT EXISTS card_details_cache (
+  card_id    UUID PRIMARY KEY,
+  data       JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE card_details_cache ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read card_details_cache" ON card_details_cache
+  FOR SELECT USING (true);
 
 -- ── marketplace_connections ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS marketplace_connections (

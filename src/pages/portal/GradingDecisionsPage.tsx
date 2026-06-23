@@ -9,13 +9,34 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
-import { Loader2, Package, ChevronRight, Check, Truck, Award } from 'lucide-react';
+import { Loader2, Package, ChevronRight, Check, Truck, Award, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import GradingBundleManager from '@/components/GradingBundleManager';
 import type { GradingBundle, GradingBundleItem, Card } from '@/types/cards';
 
 interface BundleWithItems extends GradingBundle {
   items: (GradingBundleItem & { card: Card })[];
+}
+
+// "Card Type/Attributes" on a submission form — sport/category, parallel,
+// and any CardSight attributes (Rookie, Autograph, etc.) joined together.
+function cardTypeAttributes(card: any): string {
+  const parts = [card.sport, card.parallel, card.variation].filter(Boolean);
+  if (Array.isArray(card.attributes)) parts.push(...card.attributes);
+  return parts.join(', ') || '—';
+}
+
+function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const csv = rows
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 const STATUS_STEPS = ['building', 'submitted', 'at_grader', 'returned'] as const;
@@ -37,8 +58,17 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
   const [tracking, setTracking] = useState(bundle.tracking_number ?? '');
   const [savingTracking, setSavingTracking] = useState(false);
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
+  const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
+    Object.fromEntries(bundle.items.map((i) => [i.id, String(i.quantity ?? 1)]))
+  );
+  const [declaredValueInputs, setDeclaredValueInputs] = useState<Record<string, string>>(
+    Object.fromEntries(bundle.items.map((i) => [i.id, i.declared_value != null ? String(i.declared_value) : '']))
+  );
 
   const totalFee = bundle.items.reduce((sum, item) => sum + (item.grading_fee ?? 0), 0);
+  const totalDeclaredValue = bundle.items.reduce(
+    (sum, item) => sum + (item.declared_value ?? 0) * (item.quantity ?? 1), 0
+  );
   const currentStep = STATUS_STEPS.indexOf(bundle.status as typeof STATUS_STEPS[number]);
 
   const advanceStatus = async () => {
@@ -81,6 +111,45 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
 
     if (error) toast({ title: 'Error saving grade', variant: 'destructive' });
     else { toast({ title: 'Grade saved' }); onUpdate(); }
+  };
+
+  const saveQuantity = async (itemId: string) => {
+    const quantity = parseInt(quantityInputs[itemId]) || 1;
+    const { error } = await supabase
+      .from('grading_bundle_items')
+      .update({ quantity })
+      .eq('id', itemId);
+    if (error) toast({ title: 'Error saving quantity', variant: 'destructive' });
+    else onUpdate();
+  };
+
+  const saveDeclaredValue = async (itemId: string) => {
+    const declared_value = parseFloat(declaredValueInputs[itemId]) || null;
+    const { error } = await supabase
+      .from('grading_bundle_items')
+      .update({ declared_value })
+      .eq('id', itemId);
+    if (error) toast({ title: 'Error saving declared value', variant: 'destructive' });
+    else onUpdate();
+  };
+
+  const exportSubmissionForm = () => {
+    const rows: (string | number)[][] = [
+      ['Year', 'Product', 'Card Number', 'Player/Character Name', 'Card Type/Attributes', 'Quantity', 'Declared Value'],
+      ...bundle.items.map((item) => {
+        const card = item.card as any;
+        return [
+          card?.year ?? '',
+          card?.release_name ?? card?.set_name ?? '',
+          card?.card_number ?? '',
+          card?.player_name ?? card?.card_name ?? '',
+          cardTypeAttributes(card ?? {}),
+          item.quantity ?? 1,
+          item.declared_value ?? '',
+        ];
+      }),
+    ];
+    downloadCsv(`${bundle.name.replace(/[^a-z0-9]+/gi, '_')}_submission.csv`, rows);
   };
 
   return (
@@ -126,45 +195,105 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
         </Button>
       </div>
 
-      {/* Cards in bundle */}
+      {/* Submission form */}
       <div>
         <div className="flex justify-between items-center mb-2">
-          <p className="text-sm font-semibold text-gray-700">Cards ({bundle.items.length})</p>
-          <p className="text-sm text-gray-500">Total fees: <span className="font-semibold">${totalFee.toFixed(2)}</span></p>
+          <p className="text-sm font-semibold text-gray-700">Submission form ({bundle.items.length} cards)</p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-gray-500">
+              Declared total: <span className="font-semibold">${totalDeclaredValue.toFixed(2)}</span>
+              {' · '}Fees: <span className="font-semibold">${totalFee.toFixed(2)}</span>
+            </p>
+            {bundle.items.length > 0 && (
+              <Button size="sm" variant="outline" onClick={exportSubmissionForm} className="h-7 text-xs">
+                <Download className="h-3 w-3 mr-1" /> Export CSV
+              </Button>
+            )}
+          </div>
         </div>
 
         {bundle.items.length === 0 ? (
           <p className="text-sm text-gray-400">No cards in this bundle yet.</p>
         ) : (
-          <div className="space-y-2">
-            {bundle.items.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-2 bg-gray-50">
-                {item.card?.image_front_url && (
-                  <img src={item.card.image_front_url} alt="" className="w-10 h-12 object-contain rounded" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <Link to={`/portal/cards/${item.card_id}`} className="text-sm font-medium text-[#14314F] hover:underline truncate block">
-                    {item.card?.card_name ?? 'Card'}
-                  </Link>
-                  <p className="text-xs text-gray-400">{item.grading_fee != null ? `Fee: $${item.grading_fee.toFixed(2)}` : 'No fee set'}</p>
-                </div>
-                {item.official_grade ? (
-                  <Badge className="bg-[#47682d] text-white">Grade: {item.official_grade}</Badge>
-                ) : bundle.status === 'returned' ? (
-                  <div className="flex gap-1 items-center">
-                    <Input
-                      className="h-7 w-20 text-xs"
-                      placeholder="Grade"
-                      value={gradeInputs[item.id] ?? ''}
-                      onChange={(e) => setGradeInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                    />
-                    <Button size="sm" className="h-7 px-2 text-xs bg-[#47682d] text-white" onClick={() => saveGrade(item.id, item.card_id)}>
-                      Save
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Year</th>
+                  <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Product</th>
+                  <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Card #</th>
+                  <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Player/Character</th>
+                  <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Type/Attributes</th>
+                  <th className="text-right text-xs font-medium text-gray-500 px-3 py-2 w-20">Qty</th>
+                  <th className="text-right text-xs font-medium text-gray-500 px-3 py-2 w-28">Declared Value</th>
+                  <th className="text-right text-xs font-medium text-gray-500 px-3 py-2">Grade</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {bundle.items.map((item) => {
+                  const card = item.card as any;
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-2 text-gray-600">{card?.year ?? '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{card?.release_name ?? card?.set_name ?? '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{card?.card_number ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <Link to={`/portal/cards/${item.card_id}`} className="font-medium text-[#14314F] hover:underline">
+                          {card?.player_name ?? card?.card_name ?? 'Card'}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 max-w-[180px] truncate" title={cardTypeAttributes(card ?? {})}>
+                        {cardTypeAttributes(card ?? {})}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          value={quantityInputs[item.id] ?? '1'}
+                          onChange={(e) => setQuantityInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                          onBlur={() => saveQuantity(item.id)}
+                          className="h-7 w-16 text-xs text-right ml-auto"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="relative w-24 ml-auto">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={declaredValueInputs[item.id] ?? ''}
+                            onChange={(e) => setDeclaredValueInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                            onBlur={() => saveDeclaredValue(item.id)}
+                            className="h-7 pl-5 text-xs text-right"
+                          />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {item.official_grade ? (
+                          <Badge className="bg-[#47682d] text-white">Grade: {item.official_grade}</Badge>
+                        ) : bundle.status === 'returned' ? (
+                          <div className="flex gap-1 items-center justify-end">
+                            <Input
+                              className="h-7 w-16 text-xs"
+                              placeholder="Grade"
+                              value={gradeInputs[item.id] ?? ''}
+                              onChange={(e) => setGradeInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                            />
+                            <Button size="sm" className="h-7 px-2 text-xs bg-[#47682d] text-white" onClick={() => saveGrade(item.id, item.card_id)}>
+                              Save
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -246,7 +375,7 @@ export default function GradingDecisionsPage() {
           {activeBundle ? (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="font-semibold text-[#14314F] mb-4">{activeBundle.name}</h3>
-              <BundleDetail bundle={activeBundle} onUpdate={loadBundles} />
+              <BundleDetail key={activeBundle.id} bundle={activeBundle} onUpdate={loadBundles} />
             </div>
           ) : (
             <div className="flex items-center justify-center h-48 rounded-xl border border-dashed border-gray-200 text-gray-400">

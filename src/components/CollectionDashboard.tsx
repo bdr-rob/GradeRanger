@@ -250,6 +250,7 @@ export default function CollectionDashboard() {
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Set</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Year</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 text-xs">Predicted Grade</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 text-xs">Cost</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 text-xs">Est. Value</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-500 text-xs">P&L</th>
@@ -286,6 +287,17 @@ export default function CollectionDashboard() {
                         <Badge className={`text-xs ${STATUS_COLORS[card.status]}`}>
                           {STATUS_LABELS[card.status]}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {card.ai_reports?.status === 'complete' && card.ai_reports.overall_grade != null ? (
+                          <Badge className="bg-[#47682d] text-white text-xs">
+                            {card.ai_reports.overall_grade.toFixed(1)}{card.ai_reports.condition_label ? ` · ${card.ai_reports.condition_label}` : ''}
+                          </Badge>
+                        ) : card.ai_reports?.status === 'processing' || card.ai_reports?.status === 'pending' ? (
+                          <span className="text-xs text-gray-400">Grading…</span>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-medium text-gray-700">
                         ${cost.toFixed(2)}
@@ -327,9 +339,19 @@ export default function CollectionDashboard() {
                     {card.player_name && (
                       <p className="text-xs text-gray-500 truncate">{card.player_name}</p>
                     )}
-                    <Badge className={`text-xs ${STATUS_COLORS[card.status]}`}>
-                      {STATUS_LABELS[card.status]}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge className={`text-xs ${STATUS_COLORS[card.status]}`}>
+                        {STATUS_LABELS[card.status]}
+                      </Badge>
+                      {card.ai_reports?.status === 'complete' && card.ai_reports.overall_grade != null && (
+                        <Badge className="bg-[#47682d] text-white text-xs">
+                          {card.ai_reports.overall_grade.toFixed(1)}{card.ai_reports.condition_label ? ` · ${card.ai_reports.condition_label}` : ''}
+                        </Badge>
+                      )}
+                      {(card.ai_reports?.status === 'processing' || card.ai_reports?.status === 'pending') && (
+                        <span className="text-xs text-gray-400">Grading…</span>
+                      )}
+                    </div>
                     <div className="flex justify-between items-end pt-1">
                       <div>
                         <p className="text-xs text-gray-400">Cost</p>

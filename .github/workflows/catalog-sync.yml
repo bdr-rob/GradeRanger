@@ -1,0 +1,57 @@
+name: Catalog sync
+
+# Keeps the local CardSight catalog cache (catalog_sets, catalog_manufacturers,
+# catalog_releases, catalog_attributes, catalog_fields, release_cards_cache)
+# fresh on a schedule, instead of relying on someone clicking "Sync from
+# CardSight" in the Catalog page. CardSight's catalog endpoints are tightly
+# rate-limited, so each sync action is called in a loop, paginating via
+# start_skip/start_offset, until the function reports done: true.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run paginated catalog syncs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          FN_URL="$SUPABASE_URL/functions/v1/cardsight-catalog"
+
+          call() {
+            curl -sS -X POST "$FN_URL" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$1"
+          }
+
+          # Bulk syncs — paginate via start_skip until done:true
+          for action in sync_sets sync_manufacturers sync_releases sync_attributes sync_fields; do
+            echo "== $action =="
+            skip=0
+            while :; do
+              resp=$(call "{\"action\":\"$action\",\"start_skip\":$skip}")
+              echo "$resp"
+              done=$(echo "$resp" | jq -r '.done // false')
+              if [ "$done" = "true" ]; then break; fi
+              skip=$(echo "$resp" | jq -r '.nextSkip')
+            done
+          done
+
+          # Refresh previously-viewed checklists — paginate via start_offset
+          echo "== refresh_checklists =="
+          offset=0
+          while :; do
+            resp=$(call "{\"action\":\"refresh_checklists\",\"start_offset\":$offset}")
+            echo "$resp"
+            done=$(echo "$resp" | jq -r '.done // false')
+            if [ "$done" = "true" ]; then break; fi
+            offset=$(echo "$resp" | jq -r '.nextOffset')
+          done

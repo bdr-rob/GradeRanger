@@ -147,8 +147,13 @@ export default function AIReportViewer({ report, loading, onRetry }: Props) {
     { subject: 'Surface', score: surface },
   ];
 
+  // Ximilar returns a real verbal condition (Poor..Gem Mint) — prefer it over
+  // the locally-computed heuristic, which only exists as a fallback for
+  // older reports (e.g. from the previous Claude-based grading) that predate
+  // the condition_label column.
   const gradeLabel =
-    overallGrade >= 9.5
+    report.condition_label ??
+    (overallGrade >= 9.5
       ? 'Gem Mint'
       : overallGrade >= 9
       ? 'Mint'
@@ -158,7 +163,7 @@ export default function AIReportViewer({ report, loading, onRetry }: Props) {
       ? 'Near Mint'
       : overallGrade >= 6
       ? 'Excellent-Near Mint'
-      : 'Good or Below';
+      : 'Good or Below');
 
   return (
     <div className="space-y-6">

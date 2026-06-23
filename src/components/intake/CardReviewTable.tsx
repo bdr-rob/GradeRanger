@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { RecognizedCard } from '@/lib/ximilar'
+import { submitCardForAnalysis } from '@/lib/api/aiAnalysis'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -191,6 +192,17 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
           alert(`Save failed: ${insertError.message}`)
           setSaving(false)
           return
+        }
+
+        // Kick off Ximilar grading in the background — each card can take
+        // up to ~90s (the edge function polls Ximilar synchronously), so we
+        // don't await this or it'd stall "Save N Cards" for minutes. The
+        // card's AI Report tab picks up the resulting 'processing' row and
+        // polls it to completion on its own.
+        if (frontUrl) {
+          submitCardForAnalysis(insertedCard.id, frontUrl, backUrl || frontUrl).catch((err) => {
+            console.error('Background grading failed to start:', err)
+          })
         }
       }
 
