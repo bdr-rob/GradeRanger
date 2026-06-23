@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/ebay-deletion",
+      "destination": "https://bgufxqivlxlfebayydcl.supabase.co/functions/v1/ebay-deletion-webhook"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

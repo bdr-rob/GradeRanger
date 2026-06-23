@@ -49,8 +49,8 @@ serve(async (req) => {
     const challengeCode = url.searchParams.get("challenge_code");
 
     if (challengeCode) {
-      const clientSecret = Deno.env.get("EBAY_CLIENT_SECRET") ?? "";
-      const endpointUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ebay-deletion-webhook`;
+    const clientSecret = Deno.env.get('EBAY_VERIFICATION_TOKEN') ?? '';
+    const endpointUrl = 'https://www.graderanger.com/api/ebay-deletion';
 
       // eBay challenge response hash: SHA-256(challengeCode + clientSecret + endpointUrl)
       const hashInput = challengeCode + clientSecret + endpointUrl;
