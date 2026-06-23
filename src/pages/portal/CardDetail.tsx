@@ -5,7 +5,10 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft, Image, Bot, TrendingUp, Split, Clock } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, ArrowLeft, Image, Bot, TrendingUp, Split, Clock, Pencil, X, Save } from 'lucide-react';
 import AIReportViewer from '@/components/AIReportViewer';
 import MarketValuePanel from '@/components/MarketValuePanel';
 import GradingROICalculator from '@/components/GradingROICalculator';
@@ -15,40 +18,81 @@ import { submitCardForAnalysis, pollAnalysisJob } from '@/lib/api/aiAnalysis';
 import type { Card, AIReport, Purchase, MarketValuation, CardStatus } from '@/types/cards';
 import { STATUS_LABELS, STATUS_COLORS } from '@/types/cards';
 
+const PURCHASE_LOCATIONS = [
+  'eBay', 'PWCC', 'Goldin', 'Heritage Auctions', 'Local Card Shop',
+  'Card Show', 'Facebook Marketplace', 'Facebook Group', 'Whatnot', 'Fanatics', 'Other',
+]
+
+// Helper — handles column name differences between Card type and what we actually save
+function getField(card: any, ...keys: string[]): string {
+  for (const key of keys) {
+    if (card[key] != null && card[key] !== '') return card[key]
+  }
+  return ''
+}
+
+interface EditState {
+  player_name: string
+  year: string
+  card_name: string
+  card_set: string
+  card_number: string
+  sport: string
+  parallel: string
+  variation: string
+  company: string
+  purchase_price: string
+  purchase_location: string
+}
+
+function toEditState(card: any): EditState {
+  return {
+    player_name:      getField(card, 'player_name'),
+    year:             getField(card, 'year'),
+    card_name:        getField(card, 'card_name'),
+    card_set:         getField(card, 'card_set', 'set_name'),
+    card_number:      getField(card, 'card_number'),
+    sport:            getField(card, 'sport'),
+    parallel:         getField(card, 'parallel'),
+    variation:        getField(card, 'variation'),
+    company:          getField(card, 'company'),
+    purchase_price:   card.purchase_price != null ? String(card.purchase_price) : '',
+    purchase_location: getField(card, 'purchase_location'),
+  }
+}
+
 export default function CardDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
-  const [card, setCard] = useState<Card | null>(null);
-  const [purchase, setPurchase] = useState<Purchase | null>(null);
+  const [card, setCard]       = useState<Card | null>(null);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [valuation, setValuation] = useState<MarketValuation | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollingAI, setPollingAI] = useState(false);
 
+  // Edit state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+
   const loadCard = useCallback(async () => {
     if (!id) return;
-    const [cardRes, purchaseRes, aiRes, valRes] = await Promise.all([
+    const [cardRes, aiRes, valRes] = await Promise.all([
       supabase.from('cards').select('*').eq('id', id).single(),
-      supabase.from('purchases').select('*').eq('card_id', id).order('created_at', { ascending: false }).limit(1).single(),
       supabase.from('ai_reports').select('*').eq('card_id', id).order('created_at', { ascending: false }).limit(1).single(),
       supabase.from('market_valuations').select('*').eq('card_id', id).order('fetched_at', { ascending: false }).limit(1).single(),
     ]);
-
     if (cardRes.data) setCard(cardRes.data as Card);
-    if (purchaseRes.data) setPurchase(purchaseRes.data as Purchase);
-    if (aiRes.data) setAiReport(aiRes.data as AIReport);
-    if (valRes.data) setValuation(valRes.data as MarketValuation);
+    if (aiRes.data)   setAiReport(aiRes.data as AIReport);
+    if (valRes.data)  setValuation(valRes.data as MarketValuation);
     setLoading(false);
   }, [id]);
 
-  useEffect(() => {
-    loadCard();
-  }, [loadCard]);
+  useEffect(() => { loadCard(); }, [loadCard]);
 
   // Poll AI job if still processing
   useEffect(() => {
     if (!aiReport || aiReport.status === 'complete' || aiReport.status === 'failed') return;
-
     setPollingAI(true);
     const interval = setInterval(async () => {
       const result = await pollAnalysisJob(aiReport.id).catch(() => null);
@@ -59,20 +103,63 @@ export default function CardDetail() {
         await loadCard();
       }
     }, 5000);
-
-    return () => {
-      clearInterval(interval);
-      setPollingAI(false);
-    };
+    return () => { clearInterval(interval); setPollingAI(false); };
   }, [aiReport?.id, aiReport?.status, loadCard]);
 
+  const startEditing = () => {
+    if (!card) return;
+    setEditState(toEditState(card));
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditState(null);
+  };
+
+  const updateField = (field: keyof EditState, value: string) => {
+    setEditState(prev => prev ? { ...prev, [field]: value } : prev);
+  };
+
+  const saveEdits = async () => {
+    if (!card || !editState) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('cards').update({
+        player_name:      editState.player_name      || null,
+        year:             editState.year             || null,
+        card_name:        editState.card_name        || null,
+        card_set:         editState.card_set         || null,
+        card_number:      editState.card_number      || null,
+        sport:            editState.sport            || null,
+        parallel:         editState.parallel         || null,
+        variation:        editState.variation        || null,
+        company:          editState.company          || null,
+        purchase_price:   editState.purchase_price ? parseFloat(editState.purchase_price) : null,
+        purchase_location: editState.purchase_location || null,
+      }).eq('id', card.id);
+
+      if (error) throw error;
+      toast({ title: 'Card updated' });
+      setIsEditing(false);
+      setEditState(null);
+      await loadCard();
+    } catch (err) {
+      toast({ title: 'Save failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleRetryAnalysis = async () => {
-    if (!card?.image_front_url) {
+    const frontUrl = getField(card as any, 'image_front_url', 'front_image_url');
+    if (!frontUrl) {
       toast({ title: 'No image available for analysis', variant: 'destructive' });
       return;
     }
     try {
-      await submitCardForAnalysis(card.id, card.image_front_url, card.image_back_url ?? card.image_front_url);
+      const backUrl = getField(card as any, 'image_back_url', 'back_image_url') || frontUrl;
+      await submitCardForAnalysis(card!.id, frontUrl, backUrl);
       toast({ title: 'Analysis started', description: 'Results will appear in under a minute.' });
       await loadCard();
     } catch {
@@ -81,7 +168,7 @@ export default function CardDetail() {
   };
 
   const handleStatusChange = (newStatus: CardStatus) => {
-    setCard((prev) => prev ? { ...prev, status: newStatus } : prev);
+    setCard(prev => prev ? { ...prev, status: newStatus } : prev);
   };
 
   if (loading) {
@@ -97,43 +184,61 @@ export default function CardDetail() {
     return (
       <div className="py-16 text-center">
         <p className="text-gray-500">Card not found.</p>
-        <Button asChild variant="link" className="mt-2">
-          <Link to="/portal">Back to portal</Link>
-        </Button>
+        <Button asChild variant="link" className="mt-2"><Link to="/portal">Back to portal</Link></Button>
       </div>
     );
   }
 
-  const costBasis = purchase?.cost_basis ?? 0;
-  const gradedValues = (valuation?.graded_values as Record<string, Record<string, number>> | null) ?? null;
+  const c = card as any; // typed escape hatch for extra columns
+  const frontUrl    = getField(c, 'image_front_url', 'front_image_url');
+  const backUrl     = getField(c, 'image_back_url', 'back_image_url');
+  const setName     = getField(c, 'card_set', 'set_name');
+  const purchasePrice    = c.purchase_price != null ? `$${parseFloat(c.purchase_price).toFixed(2)}` : null;
+  const purchaseLocation = getField(c, 'purchase_location');
+  const marketValue = valuation?.raw_median ?? null;
 
   return (
     <div className="space-y-6 max-w-4xl">
       {/* Header */}
       <div>
         <Button asChild variant="ghost" size="sm" className="text-gray-500 mb-3 -ml-2">
-          <Link to="/portal">
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back to collection
-          </Link>
+          <Link to="/portal"><ArrowLeft className="h-4 w-4 mr-1" /> Back to collection</Link>
         </Button>
 
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-[#14314F]">{card.card_name}</h2>
+            <h2 className="text-2xl font-bold text-[#14314F]">
+              {getField(c, 'card_name', 'player_name') || 'Unnamed Card'}
+            </h2>
             <p className="text-gray-500 mt-0.5">
-              {[card.player_name, card.year, card.set_name, card.card_number].filter(Boolean).join(' · ')}
+              {[c.player_name, c.year, setName, c.card_number].filter(Boolean).join(' · ')}
             </p>
           </div>
-          <Badge className={STATUS_COLORS[card.status]}>{STATUS_LABELS[card.status]}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge className={STATUS_COLORS[card.status]}>{STATUS_LABELS[card.status]}</Badge>
+            {!isEditing ? (
+              <Button onClick={startEditing} variant="outline" size="sm" className="flex items-center gap-1">
+                <Pencil className="w-3 h-3" /> Edit
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button onClick={saveEdits} disabled={saving} size="sm" className="bg-[#47682d] hover:bg-[#3a5525] text-white">
+                  {saving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
+                  Save
+                </Button>
+                <Button onClick={cancelEditing} variant="outline" size="sm">
+                  <X className="w-3 h-3 mr-1" /> Cancel
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
-
-        {card.internal_card_id && (
-          <p className="text-xs text-gray-400 mt-1 font-mono">{card.internal_card_id}</p>
+        {c.internal_card_id && (
+          <p className="text-xs text-gray-400 mt-1 font-mono">{c.internal_card_id}</p>
         )}
       </div>
 
-      {/* Main tabs */}
+      {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-1.5">
@@ -154,125 +259,252 @@ export default function CardDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Overview Tab */}
+        {/* ── Overview ───────────────────────────────────────────────────────── */}
         <TabsContent value="overview" className="space-y-5 mt-5">
-          <div className="flex gap-4 flex-col sm:flex-row">
-            {card.image_front_url && (
-              <div className="flex-1">
-                <p className="text-xs text-gray-500 mb-1 font-medium">Front</p>
-                <img src={card.image_front_url} alt="Card front" className="rounded-xl border max-h-64 object-contain w-full" />
-              </div>
-            )}
-            {card.image_back_url && (
-              <div className="flex-1">
-                <p className="text-xs text-gray-500 mb-1 font-medium">Back</p>
-                <img src={card.image_back_url} alt="Card back" className="rounded-xl border max-h-64 object-contain w-full" />
-              </div>
-            )}
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">Card details</h4>
-              <dl className="space-y-1.5 text-sm">
-                {[
-                  ['Player / Character', card.player_name],
-                  ['Year', card.year],
-                  ['Set', card.set_name],
-                  ['Card number', card.card_number],
-                  ['Variation', card.variation],
-                  ['Sport / Game', card.sport],
-                ].map(([label, val]) => val ? (
-                  <div key={label} className="flex justify-between gap-2">
-                    <dt className="text-gray-400">{label}</dt>
-                    <dd className="font-medium text-gray-700 text-right">{val}</dd>
-                  </div>
-                ) : null)}
-              </dl>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">Purchase details</h4>
-              {purchase ? (
-                <dl className="space-y-1.5 text-sm">
-                  <div className="flex justify-between"><dt className="text-gray-400">Purchase price</dt><dd className="font-medium">${purchase.purchase_price.toFixed(2)}</dd></div>
-                  <div className="flex justify-between"><dt className="text-gray-400">Shipping</dt><dd className="font-medium">${purchase.shipping_cost.toFixed(2)}</dd></div>
-                  {purchase.purchase_site && <div className="flex justify-between"><dt className="text-gray-400">Source</dt><dd className="font-medium">{purchase.purchase_site}</dd></div>}
-                  {purchase.purchase_date && <div className="flex justify-between"><dt className="text-gray-400">Date</dt><dd className="font-medium">{purchase.purchase_date}</dd></div>}
-                  <div className="flex justify-between border-t pt-1.5 mt-1.5">
-                    <dt className="font-semibold text-gray-700">Cost basis</dt>
-                    <dd className="font-bold text-[#14314F]">${costBasis.toFixed(2)}</dd>
-                  </div>
-                </dl>
-              ) : (
-                <p className="text-sm text-gray-400">No purchase details recorded.</p>
+          {/* Card images */}
+          {(frontUrl || backUrl) && (
+            <div className="flex gap-4 flex-col sm:flex-row">
+              {frontUrl && (
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 mb-1 font-medium">Front</p>
+                  <img src={frontUrl} alt="Card front" className="rounded-xl border max-h-64 object-contain w-full bg-gray-50" />
+                </div>
+              )}
+              {backUrl && (
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 mb-1 font-medium">Back</p>
+                  <img src={backUrl} alt="Card back" className="rounded-xl border max-h-64 object-contain w-full bg-gray-50" />
+                </div>
               )}
             </div>
-          </div>
+          )}
 
-          {card.notes && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="text-sm font-medium text-gray-700 mb-1">Notes</p>
-              <p className="text-sm text-gray-600">{card.notes}</p>
+          {isEditing && editState ? (
+            /* ── EDIT MODE ─────────────────────────────────────────────────── */
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Card details</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {([
+                    ['Player / Name',       'player_name',  'text'],
+                    ['Year',               'year',         'text'],
+                    ['Card Name',          'card_name',    'text'],
+                    ['Set',                'card_set',     'text'],
+                    ['Card #',             'card_number',  'text'],
+                    ['Sport / Category',   'sport',        'text'],
+                    ['Parallel',           'parallel',     'text'],
+                    ['Variation',          'variation',    'text'],
+                    ['Company',            'company',      'text'],
+                  ] as [string, keyof EditState, string][]).map(([label, field]) => (
+                    <div key={field}>
+                      <Label className="text-xs text-muted-foreground uppercase tracking-wide">{label}</Label>
+                      <Input
+                        value={editState[field]}
+                        onChange={e => updateField(field, e.target.value)}
+                        className="mt-1 h-8 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Purchase details</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Price ($)</Label>
+                    <Input
+                      type="number"
+                      value={editState.purchase_price}
+                      onChange={e => updateField('purchase_price', e.target.value)}
+                      className="mt-1 h-8 text-sm"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Location</Label>
+                    <Select value={editState.purchase_location} onValueChange={v => updateField('purchase_location', v)}>
+                      <SelectTrigger className="mt-1 h-8 text-sm">
+                        <SelectValue placeholder="Select location…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PURCHASE_LOCATIONS.map(loc => (
+                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ── READ MODE ─────────────────────────────────────────────────── */
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Card details</h4>
+                <dl className="space-y-1.5 text-sm">
+                  {([
+                    ['Player / Character', c.player_name],
+                    ['Year',              c.year],
+                    ['Card Name',         c.card_name],
+                    ['Set',               setName],
+                    ['Card number',       c.card_number],
+                    ['Sport / Game',      c.sport],
+                    ['Parallel',          c.parallel],
+                    ['Variation',         c.variation],
+                    ['Company',           c.company],
+                  ] as [string, string][]).map(([label, val]) => val ? (
+                    <div key={label} className="flex justify-between gap-2">
+                      <dt className="text-gray-500 shrink-0">{label}</dt>
+                      <dd className="font-medium text-right">{val}</dd>
+                    </div>
+                  ) : null)}
+                </dl>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Purchase details</h4>
+                {purchasePrice || purchaseLocation ? (
+                  <dl className="space-y-1.5 text-sm">
+                    {purchasePrice && (
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-gray-500">Purchase price</dt>
+                        <dd className="font-medium">{purchasePrice}</dd>
+                      </div>
+                    )}
+                    {purchaseLocation && (
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-gray-500">Purchased from</dt>
+                        <dd className="font-medium">{purchaseLocation}</dd>
+                      </div>
+                    )}
+                    {marketValue != null && (
+                      <>
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-gray-500">Est. market value</dt>
+                          <dd className="font-medium text-blue-700">${marketValue.toFixed(2)}</dd>
+                        </div>
+                        {purchasePrice && (
+                          <div className="flex justify-between gap-2">
+                            <dt className="text-gray-500">Unrealized P&L</dt>
+                            <dd className={`font-medium ${marketValue - parseFloat(c.purchase_price) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {marketValue - parseFloat(c.purchase_price) >= 0 ? '+' : ''}
+                              ${(marketValue - parseFloat(c.purchase_price)).toFixed(2)}
+                            </dd>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </dl>
+                ) : (
+                  <p className="text-sm text-gray-400">No purchase details recorded.</p>
+                )}
+              </div>
             </div>
           )}
+                    {/* ── Rich Card Data ─────────────────────────────────────────────── */}
+            <div className="space-y-6">
+
+            {/* Card Attributes — shown as badges */}
+            {c.attributes?.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Attributes</p>
+                <div className="flex flex-wrap gap-2">
+                  {(c.attributes as string[]).map((attr) => (
+                    <span
+                      key={attr}
+                      className="px-2 py-0.5 rounded-full text-xs font-medium bg-[#14314F]/10 text-[#14314F]"
+                    >
+                      {attr.replace(/^pokemon-/, '').replace(/-/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Print & Release Details */}
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: 'Rarity',           value: c.rarity },
+                { label: 'Language',         value: c.language },
+                { label: 'Release Name',     value: c.release_name },
+                { label: 'Release Date',     value: c.release_date },
+                { label: 'Series',           value: c.series },
+                { label: 'Set Abbreviation', value: c.set_abbreviation },
+                { label: 'Artist',           value: c.artist },
+                { label: 'HP',               value: c.hp },
+                { label: 'Pokédex Number',   value: c.pokedex_number },
+                { label: 'Evolves From',     value: c.evolves_from },
+              ]
+                .filter(({ value }) => value)
+                .map(({ label, value }) => (
+                  <div key={label}>
+                    <p className="text-xs text-gray-400">{label}</p>
+                    <p className="text-sm font-medium text-gray-800">{value}</p>
+                  </div>
+                ))}
+            </div>
+
+            {/* Card Description / Abilities */}
+            {c.description && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Card Text</p>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line bg-gray-50 rounded-lg p-3">
+                  {c.description}
+                </p>
+              </div>
+            )}
+
+            {/* Flavor Text */}
+            {c.flavor_text && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Flavor Text</p>
+                <p className="text-sm text-gray-500 italic leading-relaxed bg-gray-50 rounded-lg p-3">
+                  "{c.flavor_text}"
+                </p>
+              </div>
+            )}
+
+            </div>
         </TabsContent>
 
-        {/* AI Report Tab */}
+        {/* ── AI Report ──────────────────────────────────────────────────────── */}
         <TabsContent value="ai" className="mt-5">
           <AIReportViewer
             report={aiReport}
-            loading={pollingAI && aiReport?.status !== 'complete'}
+            card={card}
             onRetry={handleRetryAnalysis}
           />
         </TabsContent>
 
-        {/* Market Tab */}
-        <TabsContent value="market" className="mt-5 space-y-8">
+        {/* ── Market ─────────────────────────────────────────────────────────── */}
+        <TabsContent value="market" className="mt-5">
           <MarketValuePanel
-            cardId={card.id}
-            cardName={card.card_name}
-            sport={card.sport ?? undefined}
-            aiGrade={aiReport?.overall_grade ?? undefined}
+            card={c}
+            valuation={valuation}
+            costBasis={c.purchase_price ?? 0}
+            gradedValues={(valuation?.graded_values as Record<string, Record<string, number>> | null) ?? null}
           />
-          <div className="border-t pt-6">
+          <div className="mt-4">
             <GradingROICalculator
-              costBasis={costBasis}
-              gradedValues={gradedValues}
-              aiGrade={aiReport?.overall_grade ?? undefined}
+              costBasis={c.purchase_price ?? 0}
+              gradedValues={(valuation?.graded_values as Record<string, Record<string, number>> | null) ?? null}
             />
           </div>
         </TabsContent>
 
-        {/* Disposition Tab */}
-        <TabsContent value="disposition" className="mt-5 space-y-8">
+        {/* ── Disposition ────────────────────────────────────────────────────── */}
+        <TabsContent value="disposition" className="mt-5">
           <DispositionSelector card={card} onStatusChange={handleStatusChange} />
-          <div className="border-t pt-6">
+          <div className="mt-4">
             <GradingBundleManager cardId={card.id} />
           </div>
         </TabsContent>
 
-        {/* History Tab */}
+        {/* ── History ────────────────────────────────────────────────────────── */}
         <TabsContent value="history" className="mt-5">
-          <div className="space-y-3">
-            <h3 className="font-semibold text-[#14314F]">Card history</h3>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-2 h-2 rounded-full bg-[#47682d] shrink-0" />
-                <span className="text-gray-500">{new Date(card.created_at).toLocaleDateString()}</span>
-                <span className="text-gray-700">Card added to collection</span>
-              </div>
-              {aiReport && (
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-                  <span className="text-gray-500">{new Date(aiReport.created_at).toLocaleDateString()}</span>
-                  <span className="text-gray-700">
-                    AI analysis {aiReport.status === 'complete' ? `completed — grade ${aiReport.overall_grade}` : aiReport.status}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+          <p className="text-sm text-gray-400">Activity history coming soon.</p>
         </TabsContent>
       </Tabs>
     </div>

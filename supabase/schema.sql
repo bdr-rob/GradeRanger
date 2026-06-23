@@ -80,6 +80,27 @@ CREATE TABLE IF NOT EXISTS cards (
                       CHECK (status IN ('intake','collection','grading','listed','sold','cancelled')),
   scan_date         TIMESTAMPTZ DEFAULT NOW(),
   notes             TEXT,
+  -- Purchase info (mirrors the `purchases` table for quick access on the card row)
+  purchase_price    DECIMAL(10,2),
+  purchase_location VARCHAR,
+  company           VARCHAR,
+  -- CardSight identification & market pricing
+  cardsight_card_id VARCHAR,
+  market_value      DECIMAL(10,2),
+  -- Rich CardSight card data (mostly TCG/Pokémon fields)
+  rarity            VARCHAR,
+  language          VARCHAR,
+  release_date      VARCHAR,
+  series            VARCHAR,
+  set_abbreviation  VARCHAR,
+  artist            VARCHAR,
+  hp                VARCHAR,
+  pokedex_number    VARCHAR,
+  evolves_from      VARCHAR,
+  flavor_text       TEXT,
+  description       TEXT,
+  attributes        TEXT[],
+  release_name      VARCHAR,
   created_at        TIMESTAMPTZ DEFAULT NOW(),
   updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
@@ -358,6 +379,7 @@ ON CONFLICT DO NOTHING;
 -- ── Indexes for performance ──────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_cards_user_id ON cards(user_id);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
+CREATE INDEX IF NOT EXISTS idx_cards_cardsight_card_id ON cards(cardsight_card_id);
 CREATE INDEX IF NOT EXISTS idx_cards_created_at ON cards(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_purchases_card_id ON purchases(card_id);
 CREATE INDEX IF NOT EXISTS idx_ai_reports_card_id ON ai_reports(card_id);

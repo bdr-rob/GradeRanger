@@ -11,86 +11,143 @@ export interface ScannedImage {
 }
 
 export interface XimilarMatch {
-  player: string
-  name: string
-  year: string
-  set_name: string
+  // Core identity
+  player:      string
+  name:        string
+  year:        string
+  set_name:    string
   card_number: string
-  sport: string
-  parallel: string
-  variation: string
-  company: string
-  full_name: string
+  sport:       string
+  parallel:    string
+  variation:   string
+  company:     string
+  full_name:   string
+  // CardSight rich fields
+  rarity:           string
+  language:         string
+  release_date:     string
+  series:           string
+  set_abbreviation: string
+  artist:           string
+  hp:               string
+  pokedex_number:   string
+  evolves_from:     string
+  flavor_text:      string
+  description:      string
+  attributes:       string[]
+  release_name:     string
 }
 
 export interface RecognizedCard {
-  localId: string
-  image: ScannedImage
-  bestMatch: XimilarMatch | null
-  confidence: number
-  allMatches: XimilarMatch[]
-  purchasePrice: string
+  localId:          string
+  image:            ScannedImage
+  bestMatch:        XimilarMatch | null
+  confidence:       number
+  allMatches:       XimilarMatch[]
+  purchasePrice:    string
   purchaseLocation: string
-  confirmed: boolean
+  confirmed:        boolean
+  cardsightCardId:  string | null
+  marketValue:      number | null
 }
 
-function parseIdentification(record: any): { match: XimilarMatch | null; confidence: number } {
-  // Ximilar TCG/Sport returns _identification.best_match
-  const cardObj = record?._objects?.[0]
-  const id = cardObj?._identification?.best_match ?? cardObj?._identification ?? record?._identification?.best_match ?? record?._identification
-  if (!id) return { match: null, confidence: 0 }
+function emptyMatch(): XimilarMatch {
+  return {
+    player: '', name: '', year: '', set_name: '', card_number: '',
+    sport: '', parallel: '', variation: '', company: '', full_name: '',
+    rarity: '', language: '', release_date: '', series: '',
+    set_abbreviation: '', artist: '', hp: '', pokedex_number: '',
+    evolves_from: '', flavor_text: '', description: '',
+    attributes: [], release_name: '',
+  }
+}
 
-  const match: XimilarMatch = {
-    player:      id.name        ?? id.player        ?? id.Name        ?? '',
-    name:        id.full_name   ?? id.name           ?? id.Name        ?? '',
-    year:        id.year        ?? id.Year           ?? id.season      ?? '',
-    set_name:    id.set_name    ?? id.Set            ?? id.set         ?? '',
-    card_number: id.card_number ?? id.Number         ?? id.number      ?? '',
-    sport:       id.subcategory ?? id.Subcategory    ?? id.game        ?? id.sport ?? '',
-    parallel:    id.sub_set     ?? id.parallel       ?? id.Parallel    ?? '',
-    variation:   id.variation   ?? id.Variation      ?? '',
-    company:     id.company     ?? id.manufacturer   ?? id.Publisher   ?? '',
-    full_name:   id.full_name   ?? id.Name           ?? '',
+function parseCardSightDetection(detection: any): { match: XimilarMatch | null; confidence: number } {
+  const card = detection?.card
+  if (!card) return { match: null, confidence: 0 }
+
+  // Convert fields[] array into a fast key→value lookup
+  const f: Record<string, string> = {}
+  for (const field of (card.fields ?? [])) {
+    if (field.key) f[field.key] = field.value ?? ''
   }
 
-  const confidence = record.magic_ai_used ? 0.75 : 0.95
+  const match: XimilarMatch = {
+    // Core identity
+    player:           card.playerName   ?? card.player    ?? card.name ?? '',
+    name:             card.name         ?? card.playerName ?? '',
+    year:             String(card.year  ?? ''),
+    set_name:         card.setName      ?? card.set       ?? '',
+    card_number:      card.cardNumber   ?? card.number    ?? '',
+    // No segment/sport name on the card object itself (only segmentId, a UUID) — leave for manual entry
+    sport:            f['SPORT'] ?? f['SEGMENT'] ?? '',
+    // card.parallel is an object ({id, name, ...}), not a string — extract the name
+    parallel:         card.parallel?.name ?? '',
+    // No variation description on the card object (variationOf is just a parent-card UUID)
+    variation:        f['VARIATION'] ?? '',
+    company:          card.manufacturer ?? card.brand     ?? card.company ?? '',
+    full_name:        card.name         ?? card.playerName ?? '',
+    // Rich fields from card.fields[]
+    rarity:           f['RARITY']          ?? '',
+    language:         f['LANGUAGE']        ?? '',
+    release_date:     f['RELEASE_DATE']    ?? '',
+    series:           f['SERIES']          ?? '',
+    set_abbreviation: f['SET_ABBREVIATION'] ?? '',
+    artist:           f['ARTIST']          ?? '',
+    hp:               f['HP']              ?? '',
+    pokedex_number:   f['POKEDEX_NUMBER']  ?? '',
+    evolves_from:     f['EVOLVES_FROM']    ?? '',
+    flavor_text:      f['FLAVOR_TEXT']     ?? '',
+    // Direct card object fields
+    description:      card.description  ?? '',
+    attributes:       Array.isArray(card.attributes) ? card.attributes : [],
+    release_name:     card.releaseName  ?? '',
+  }
+
+  const level = (detection.confidence ?? '').toLowerCase()
+  const confidence = level === 'high' ? 0.95 : level === 'medium' ? 0.70 : 0.45
   return { match, confidence }
 }
 
 export async function recognizeCards(
   images: ScannedImage[],
-  cardType: CardType = 'auto'
+  _cardType: CardType = 'auto'
 ): Promise<RecognizedCard[]> {
-  const { data, error } = await supabase.functions.invoke('ximilar-recognize', {
+  const { data, error } = await supabase.functions.invoke('cardsight-identify', {
     body: {
-      images: images.map((img) => ({ id: img.id, base64: img.base64 })),
-      cardType,
+      images: images.map((img) => ({
+        id:         img.id,
+        base64:     img.base64,
+        backBase64: img.backBase64,
+      })),
     },
   })
 
   if (error) throw new Error(error.message)
   if (data?.error) throw new Error(data.error)
 
-  // AFTER
-const records: any[] = data.records ?? []
-const recordMap = new Map<string, any>()
-for (const rec of records) {
-  if (rec._id) recordMap.set(rec._id, rec)
-}
+  const results: { id: string; data: any; cardsightCardId: string | null; marketValue: number | null }[] =
+    data?.results ?? []
+  const resultMap = new Map(results.map((r) => [r.id, r]))
 
-return images.map((img, i) => {
-  // ID-based lookup first, fall back to positional order if _id is missing
-  const rec = recordMap.get(img.id) ?? records[i]
-  const { match, confidence } = parseIdentification(rec)
-  return {
-    localId: img.id,
-    image: img,
-    bestMatch: match,
-    confidence,
-    allMatches: match ? [match] : [],
-    purchasePrice: '',
-    purchaseLocation: '',
-    confirmed: false,
-  }
-})
+  return images.map((img) => {
+    const result    = resultMap.get(img.id)
+    const detection = result?.data?.detections?.[0]
+    const { match, confidence } = detection
+      ? parseCardSightDetection(detection)
+      : { match: null, confidence: 0 }
+
+    return {
+      localId:          img.id,
+      image:            img,
+      bestMatch:        match,
+      confidence,
+      allMatches:       match ? [match] : [],
+      purchasePrice:    '',
+      purchaseLocation: '',
+      confirmed:        false,
+      cardsightCardId:  result?.cardsightCardId ?? null,
+      marketValue:      result?.marketValue ?? null,
+    }
+  })
 }

@@ -32,9 +32,10 @@ interface Props {
   defaultValues?: Partial<PurchaseFormValues>;
   onNext: (values: PurchaseFormValues) => void;
   onBack: () => void;
+  marketValue?: number | null;  // ← NEW
 }
 
-export default function PurchaseInfoStep({ defaultValues, onNext, onBack }: Props) {
+export default function PurchaseInfoStep({ defaultValues, onNext, onBack , marketValue }: Props) {
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<PurchaseFormValues>({
     defaultValues: {
       card_name: '',
@@ -116,6 +117,20 @@ export default function PurchaseInfoStep({ defaultValues, onNext, onBack }: Prop
               placeholder="0.00"
               {...register('purchase_price', { required: 'Purchase price is required' })}
             />
+              {marketValue != null && marketValue > 0 && (
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-xs bg-blue-50 border border-blue-200 text-blue-700 rounded px-2 py-0.5">
+         Market value: ${marketValue.toFixed(2)}
+      </span>
+      {purchasePrice > 0 && (
+        <span className={`text-xs font-medium ${purchasePrice <= marketValue ? 'text-green-600' : 'text-red-500'}`}>
+          {purchasePrice <= marketValue
+            ? `↓ $${(marketValue - purchasePrice).toFixed(2)} below market`
+            : `↑ $${(purchasePrice - marketValue).toFixed(2)} above market`}
+        </span>
+      )}
+    </div>
+  )}
             {errors.purchase_price && <p className="text-xs text-red-500">{errors.purchase_price.message}</p>}
           </div>
 
@@ -156,8 +171,24 @@ export default function PurchaseInfoStep({ defaultValues, onNext, onBack }: Prop
           <span className="text-sm font-medium text-gray-700">Cost basis (purchase + shipping)</span>
           <span className="text-lg font-bold text-[#14314F]">${costBasis.toFixed(2)}</span>
         </div>
+        {marketValue != null && marketValue > 0 && costBasis > 0 && (
+    <div className="mt-2 pt-2 border-t border-[#47682d]/10 flex justify-between items-center">
+      <span className="text-xs text-gray-500">Est. market value</span>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-gray-700">${marketValue.toFixed(2)}</span>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+          costBasis <= marketValue
+            ? 'bg-green-100 text-green-700'
+            : 'bg-red-100 text-red-600'
+        }`}>
+          {costBasis <= marketValue
+            ? `+${((marketValue / costBasis - 1) * 100).toFixed(1)}%`
+            : `-${((1 - marketValue / costBasis) * 100).toFixed(1)}%`}
+        </span>
       </div>
-
+    </div>
+  )}
+      </div>
       <div className="space-y-1">
         <Label htmlFor="notes">Notes</Label>
         <Textarea id="notes" placeholder="Any additional notes about this card…" rows={2} {...register('notes')} />

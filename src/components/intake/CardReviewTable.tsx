@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { RecognizedCard } from '@/lib/ximilar'
-import { lookupTcgPrice, TcgPriceResult } from '@/lib/tcgPrice'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,12 +11,13 @@ import { Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 const PURCHASE_LOCATIONS = [
   'eBay', 'PWCC', 'Goldin', 'Heritage Auctions', 'Local Card Shop',
-  'Card Show', 'Facebook Marketplace', 'Whatnot', 'Fanatics', 'Other',
+  'Card Show', 'Facebook Marketplace', 'FaceBook Group','Whatnot', 'Fanatics', 'Other'
 ]
 
 interface CardState {
   player: string
   year: string
+  name: string
   set_name: string
   card_number: string
   sport: string
@@ -26,11 +26,23 @@ interface CardState {
   company: string
   purchasePrice: string
   purchaseLocation: string
+  rarity: string
+  language: string
+  release_date: string
+  series: string
+  set_abbreviation: string
+  artist: string
+  hp: string
+  pokedex_number: string
+  evolves_from: string
+  flavor_text: string
+  description: string
+  attributes: string[]
+  release_name: string
 }
 
 interface Props {
   cards: RecognizedCard[]
-  cardType: 'sport' | 'tcg'
   onSaved: () => void
 }
 
@@ -39,6 +51,7 @@ function initState(card: RecognizedCard): CardState {
     player:           card.bestMatch?.player       ?? '',
     year:             card.bestMatch?.year         ?? '',
     set_name:         card.bestMatch?.set_name     ?? '',
+    name: card.bestMatch?.name ?? card.bestMatch?.player ?? '',
     card_number:      card.bestMatch?.card_number  ?? '',
     sport:            card.bestMatch?.sport        ?? '',
     parallel:         card.bestMatch?.parallel     ?? '',
@@ -46,31 +59,28 @@ function initState(card: RecognizedCard): CardState {
     company:          card.bestMatch?.company      ?? '',
     purchasePrice:    card.purchasePrice           ?? '',
     purchaseLocation: card.purchaseLocation        ?? '',
+    rarity:           card.bestMatch?.rarity           ?? '',
+    language:         card.bestMatch?.language         ?? '',
+    release_date:     card.bestMatch?.release_date     ?? '',
+    series:           card.bestMatch?.series           ?? '',
+    set_abbreviation: card.bestMatch?.set_abbreviation ?? '',
+    artist:           card.bestMatch?.artist           ?? '',
+    hp:               card.bestMatch?.hp               ?? '',
+    pokedex_number:   card.bestMatch?.pokedex_number   ?? '',
+    evolves_from:     card.bestMatch?.evolves_from     ?? '',
+    flavor_text:      card.bestMatch?.flavor_text      ?? '',
+    description:      card.bestMatch?.description      ?? '',
+    attributes:       card.bestMatch?.attributes       ?? [],
+    release_name:     card.bestMatch?.release_name     ?? '',
   }
 }
 
-export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
+export default function CardReviewTable({ cards, onSaved }: Props) {
   const { user } = useAuth()
   const [cardStates, setCardStates] = useState<CardState[]>(() => cards.map(initState))
   const [saving, setSaving] = useState(false)
   const [backVisible, setBackVisible] = useState<boolean[]>(() => cards.map(() => false))
-  const [marketPrices, setMarketPrices] = useState<Record<string, TcgPriceResult[]>>({})
 
-  // Auto-fetch TCG market prices after identification
-  useEffect(() => {
-    if (cardType !== 'tcg') return
-    cards.forEach(async (card) => {
-      if (!card.bestMatch?.player) return
-      const prices = await lookupTcgPrice(
-        card.bestMatch.player,
-        card.bestMatch.sport || 'pokemon',
-        card.bestMatch.set_name
-      )
-      if (prices.length > 0) {
-        setMarketPrices((prev) => ({ ...prev, [card.localId]: prices }))
-      }
-    })
-  }, [cards, cardType])
 
   const update = (index: number, field: keyof CardState, value: string) => {
     setCardStates((prev) => {
@@ -106,44 +116,79 @@ export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
           const { error: uploadErr } = await supabase.storage
             .from('card-images')
             .upload(frontPath, frontBytes, { contentType: 'image/jpeg', upsert: true })
-          if (!uploadErr) {
+          if (uploadErr) {
+            console.error('Front image upload failed:', uploadErr.message)
+            // Don't block the save — continue without image
+          } else {
             const { data } = supabase.storage.from('card-images').getPublicUrl(frontPath)
             frontUrl = data.publicUrl
           }
         }
-
+        
         if (card.image.backBase64) {
           const backBytes = Uint8Array.from(atob(card.image.backBase64), (c) => c.charCodeAt(0))
           const backPath = `${user.id}/${card.localId}_back.jpg`
           const { error: uploadErr } = await supabase.storage
             .from('card-images')
             .upload(backPath, backBytes, { contentType: 'image/jpeg', upsert: true })
-          if (!uploadErr) {
+          if (uploadErr) {
+            console.error('Back image upload failed:', uploadErr.message)
+          } else {
             const { data } = supabase.storage.from('card-images').getPublicUrl(backPath)
             backUrl = data.publicUrl
           }
         }
 
-        const { error: insertErr } = await supabase.from('cards').insert({
-          user_id:            user.id,
-          player_name:        state.player       || null,
-          year:               state.year         || null,
-          card_set:           state.set_name     || null,
-          card_number:        state.card_number  || null,
-          sport:              state.sport        || null,
-          parallel:           state.parallel     || null,
-          variation:          state.variation    || null,
-          company:            state.company      || null,
-          purchase_price:     state.purchasePrice ? parseFloat(state.purchasePrice) : null,
-          purchase_location:  state.purchaseLocation || null,
-          front_image_url:    frontUrl,
-          back_image_url:     backUrl,
-          ximilar_confidence: card.confidence   || null,
-          status:             'owned',
+        const { data: insertedCard, error: insertError } = await supabase
+        .from('cards')
+        .insert({
+          user_id:          user.id,
+      
+          // Core identity
+          card_name:        state.player || state.name || state.set_name || 'Unknown Card',
+          player_name:      state.player,
+          year:             state.year,
+          set_name:         state.set_name,
+          card_number:      state.card_number,
+          sport:            state.sport,
+          parallel:         state.parallel,
+          variation:        state.variation,
+          company:          state.company,
+      
+          // Purchase info
+          purchase_price:    parseFloat(state.purchasePrice) || null,
+          purchase_location: state.purchaseLocation || null,
+      
+          // CardSight IDs & market
+          cardsight_card_id: card.cardsightCardId || null,
+          market_value:      card.marketValue     || null,
+      
+          // Rich CardSight fields
+          rarity:           state.rarity           || null,
+          language:         state.language         || null,
+          release_date:     state.release_date     || null,
+          series:           state.series           || null,
+          set_abbreviation: state.set_abbreviation || null,
+          artist:           state.artist           || null,
+          hp:               state.hp               || null,
+          pokedex_number:   state.pokedex_number   || null,
+          evolves_from:     state.evolves_from     || null,
+          flavor_text:      state.flavor_text      || null,
+          description:      state.description      || null,
+          attributes:       state.attributes?.length ? state.attributes : null,
+          release_name:     state.release_name     || null,
+      
+          // Image URLs
+          front_image_url:  frontUrl || null,
+          back_image_url:   backUrl  || null,
+      
+          status: 'intake',
         })
+        .select()
+        .single()
 
-        if (insertErr) {
-          alert(`Save failed: ${insertErr.message}`)
+        if (insertError) {
+          alert(`Save failed: ${insertError.message}`)
           setSaving(false)
           return
         }
@@ -179,7 +224,7 @@ export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
           const state = cardStates[i]
           const identified = !!card.bestMatch
           const hasBack = !!card.image.backPreview
-          const marketPrice = marketPrices[card.localId]?.[0]
+          const marketValue = card.marketValue ?? null
 
           return (
             <div key={card.localId} className="border rounded-lg p-4 bg-white shadow-sm">
@@ -235,6 +280,25 @@ export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
                   <div>
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Price ($)</Label>
                     <Input type="number" value={state.purchasePrice} onChange={(e) => update(i, 'purchasePrice', e.target.value)} placeholder="0.00" className="mt-1" />
+                  {/* Market value from CardSight */}
+                  {marketValue != null && marketValue > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-xs bg-blue-50 border border-blue-200 text-blue-700 rounded px-2 py-0.5 font-medium">
+                        Market: ${marketValue.toFixed(2)}
+                      </span>
+                      {state.purchasePrice && parseFloat(state.purchasePrice) > 0 && (
+                        <span className={`text-xs font-medium ${
+                          parseFloat(state.purchasePrice) <= marketValue
+                            ? 'text-green-600'
+                            : 'text-red-500'
+                        }`}>
+                          {parseFloat(state.purchasePrice) <= marketValue
+                            ? `↓ $${(marketValue - parseFloat(state.purchasePrice)).toFixed(2)} below market`
+                            : `↑ $${(parseFloat(state.purchasePrice) - marketValue).toFixed(2)} above market`}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Set</Label>
@@ -269,19 +333,76 @@ export default function CardReviewTable({ cards, cardType, onSaved }: Props) {
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Company</Label>
                     <Input value={state.company} onChange={(e) => update(i, 'company', e.target.value)} placeholder="e.g. Topps" className="mt-1" />
                   </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Card Name</Label>
+                    <Input value={state.name} onChange={(e) => update(i, 'name', e.target.value)} placeholder="e.g. Charizard" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Variation</Label>
+                    <Input value={state.variation} onChange={(e) => update(i, 'variation', e.target.value)} placeholder="e.g. 1st Edition" className="mt-1" />
+                  </div>
                 </div>
               </div>
+              {/* Read-only CardSight details — shown for review, not editable */}
+              {([
+                ['Rarity', state.rarity],
+                ['Language', state.language],
+                ['Release Date', state.release_date],
+                ['Series', state.series],
+                ['Set Abbreviation', state.set_abbreviation],
+                ['Artist', state.artist],
+                ['HP', state.hp],
+                ['Pokédex #', state.pokedex_number],
+                ['Evolves From', state.evolves_from],
+                ['Release Name', state.release_name],
+              ] as [string, string][]).some(([, val]) => val) && (
+                <div className="mt-4 pt-3 border-t grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {([
+                    ['Rarity', state.rarity],
+                    ['Language', state.language],
+                    ['Release Date', state.release_date],
+                    ['Series', state.series],
+                    ['Set Abbreviation', state.set_abbreviation],
+                    ['Artist', state.artist],
+                    ['HP', state.hp],
+                    ['Pokédex #', state.pokedex_number],
+                    ['Evolves From', state.evolves_from],
+                    ['Release Name', state.release_name],
+                  ] as [string, string][])
+                    .filter(([, val]) => val)
+                    .map(([label, val]) => (
+                      <div key={label}>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>
+                        <p className="text-sm text-gray-700 mt-0.5">{val}</p>
+                      </div>
+                    ))}
+                </div>
+              )}
 
-              {/* ← Market price goes HERE, full width, below the fields */}
-              {cardType === 'tcg' && marketPrice && (
-                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                  <span className="font-medium text-blue-800">Market Price Reference: </span>
-                  <span className="text-blue-700">
-                    Market: ${marketPrice.market_price?.toFixed(2) ?? '—'} ·{' '}
-                    Low: ${marketPrice.low_price?.toFixed(2) ?? '—'} ·{' '}
-                    Median: ${marketPrice.median_price?.toFixed(2) ?? '—'}
-                  </span>
-                  <span className="text-blue-500 ml-1">({marketPrice.set_name})</span>
+              {state.attributes.length > 0 && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5">Attributes</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {state.attributes.map((attr) => (
+                      <Badge key={attr} variant="outline" className="text-xs font-normal">
+                        {attr.replace(/^pokemon-/, '').replace(/-/g, ' ')}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {state.description && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Card Text</p>
+                  <p className="text-sm text-gray-600 whitespace-pre-line">{state.description}</p>
+                </div>
+              )}
+
+              {state.flavor_text && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Flavor Text</p>
+                  <p className="text-sm text-gray-500 italic">"{state.flavor_text}"</p>
                 </div>
               )}
             </div>

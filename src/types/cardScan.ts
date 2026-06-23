@@ -107,4 +107,23 @@ export interface SavedLocalScan {
   backImageDataUrl?: string;
 }
 
-
+// ── Change 1: PredictedGrades — add SGC and TAG ────────────────────────────
+export interface PredictedGrades {
+  PSA: number;
+  Beckett: number;    // BGS
+  CGC: number;
+  SGC?: number;       // ← add
+  TAG?: number;       // ← add
+}
+// ── Change 2: GradingDecision.route — add CGC and TAG ─────────────────────
+export interface GradingDecision {
+  stage1Result: 'advance' | 'eliminated';
+  stage2Result: 'gem_mint' | 'strong_9' | 'fail';
+  stage3Zone: 'green' | 'yellow' | 'red';
+  route: 'PSA' | 'BGS' | 'CGC' | 'SGC' | 'TAG' | 'hold' | 'do_not_submit'; // ← added CGC, TAG
+  rawCost?: number;
+  allInCost?: number;
+  netProfit?: number;
+  finalChecklist: boolean;
+  decidedAt: string;
+}

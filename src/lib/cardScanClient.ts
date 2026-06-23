@@ -117,7 +117,8 @@ function mapReportToScanData(report: any): CardScanAnalysisData {
     ...(edges.defects ?? []),
     ...(surface.defects ?? []),
   ];
-
+  const cardId = report.card_identification;
+  
   // Explanation — lead with grading recommendation
   const explanation = [
     report.grading_recommendation
