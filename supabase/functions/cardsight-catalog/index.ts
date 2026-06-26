@@ -307,6 +307,58 @@ async function cardDetail(apiKey: string, cardId: string, force: boolean) {
   return { card, fetchedAt, source: 'live' }
 }
 
+// Cache-on-read for a card's graded population report — same rate-limit
+// concerns as card detail, and population counts don't shift minute to
+// minute, so fetch live once per card and serve from cache after that.
+async function cardPopulation(apiKey: string, cardId: string, force: boolean) {
+  const client = sb()
+
+  if (!force) {
+    const { data: cached } = await client
+      .from('card_population_cache')
+      .select('data, fetched_at')
+      .eq('card_id', cardId)
+      .maybeSingle()
+    if (cached) return { population: cached.data, fetchedAt: cached.fetched_at, source: 'cache' }
+  }
+
+  const population = await cardsightFetch(`/v1/population/card/${cardId}`, apiKey)
+  const fetchedAt = new Date().toISOString()
+  const { error } = await client
+    .from('card_population_cache')
+    .upsert({ card_id: cardId, data: population, fetched_at: fetchedAt }, { onConflict: 'card_id' })
+  if (error) throw new Error(`card_population_cache upsert failed: ${error.message}`)
+
+  return { population, fetchedAt, source: 'live' }
+}
+
+// Live marketplace listings for a specific card — raw (ungraded) + graded sections.
+// Short cache (30 min) since listings change frequently.
+async function cardMarketplace(apiKey: string, cardId: string, force: boolean) {
+  const client = sb()
+  const CACHE_MAX_AGE_MS = 30 * 60 * 1000
+
+  if (!force) {
+    const { data: cached } = await client
+      .from('card_population_cache') // reuse existing cache table keyed on card_id
+      .select('data, fetched_at')
+      .eq('card_id', `marketplace:${cardId}`)
+      .maybeSingle()
+
+    if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_MAX_AGE_MS) {
+      return { ...cached.data, source: 'cache' }
+    }
+  }
+
+  const data = await cardsightFetch(`/v1/marketplace/${cardId}`, apiKey)
+  const fetchedAt = new Date().toISOString()
+  await client.from('card_population_cache').upsert(
+    { card_id: `marketplace:${cardId}`, data, fetched_at: fetchedAt },
+    { onConflict: 'card_id' }
+  )
+  return { ...data, source: 'live' }
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -343,8 +395,14 @@ serve(async (req: Request) => {
       case 'card_detail':
         if (!card_id) return json({ error: 'card_id required' }, 400)
         return json(await cardDetail(apiKey, card_id, !!force))
+      case 'population':
+        if (!card_id) return json({ error: 'card_id required' }, 400)
+        return json(await cardPopulation(apiKey, card_id, !!force))
+      case 'marketplace':
+        if (!card_id) return json({ error: 'card_id required' }, 400)
+        return json(await cardMarketplace(apiKey, card_id, !!force))
       default:
-        return json({ error: 'action must be one of: stats, check, sync_sets, sync_manufacturers, sync_releases, sync_attributes, sync_fields, search, release_detail, refresh_checklists, card_detail' }, 400)
+        return json({ error: 'action must be one of: stats, check, sync_sets, sync_manufacturers, sync_releases, sync_attributes, sync_fields, search, release_detail, refresh_checklists, card_detail, population, marketplace' }, 400)
     }
   } catch (err) {
     console.error('cardsight-catalog error:', err)

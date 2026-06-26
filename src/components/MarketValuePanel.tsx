@@ -104,10 +104,25 @@ export default function MarketValuePanel({ card, valuation: initialValuation, co
   )
   const [rawLow, setRawLow]   = useState<number | null>(initialValuation?.raw_low ?? null)
   const [rawHigh, setRawHigh] = useState<number | null>(initialValuation?.raw_high ?? null)
-  const [history, setHistory]   = useState<PricePoint[] | null>(null)
-  const [sales, setSales]       = useState<SaleRecord[] | null>(null)
-  const [listings, setListings] = useState<ListingRecord[] | null>(null)
-  const [usingListingsFallback, setUsingListingsFallback] = useState(false)
+  // Pre-populate sub-data from the DB cache if it's still fresh (< 4 h).
+  // On a fresh mount this means zero CardSight API calls for recently-viewed
+  // cards — the edge function is only invoked when the cache is absent or stale.
+  const CACHE_MAX_AGE_MS = 4 * 60 * 60 * 1000
+  const cachedFetchedAt  = initialValuation?.fetched_at ? new Date(initialValuation.fetched_at).getTime() : 0
+  const cacheIsFresh     = Date.now() - cachedFetchedAt < CACHE_MAX_AGE_MS && initialValuation?.cached_history != null
+
+  const [history, setHistory]   = useState<PricePoint[] | null>(
+    cacheIsFresh ? normaliseHistory(initialValuation?.cached_history) : null
+  )
+  const [sales, setSales]       = useState<SaleRecord[] | null>(
+    cacheIsFresh ? normaliseSales(initialValuation?.cached_sales) : null
+  )
+  const [listings, setListings] = useState<ListingRecord[] | null>(
+    cacheIsFresh ? normaliseListings(initialValuation?.cached_listings) : null
+  )
+  const [usingListingsFallback, setUsingListingsFallback] = useState(
+    cacheIsFresh ? (initialValuation?.data_source?.includes('listings') ?? false) : false
+  )
   const [loading, setLoading] = useState(false)
   const [lastFetched, setLastFetched] = useState<string | null>(
     initialValuation?.fetched_at ?? null
@@ -120,11 +135,7 @@ export default function MarketValuePanel({ card, valuation: initialValuation, co
     setLoading(true)
     try {
       const { data, error } = await supabase.functions.invoke('cardsight-market', {
-        body: {
-          card_id: card.id,
-          cardsight_card_id: cardsightCardId,
-          force,
-        },
+        body: { card_id: card.id, cardsight_card_id: cardsightCardId, force },
       })
       if (error) throw error
 
@@ -152,12 +163,12 @@ export default function MarketValuePanel({ card, valuation: initialValuation, co
   }
 
   useEffect(() => {
-    // Auto-fetch if no stored valuation or stale (>24h)
     if (!cardsightCardId) return
-    const age = lastFetched
-      ? Date.now() - new Date(lastFetched).getTime()
-      : Infinity
-    if (age > 24 * 60 * 60 * 1000) fetchMarketData()
+    // Skip the live call when the DB already has fresh sub-data (history/
+    // sales/listings) — those are now cached alongside the headline value
+    // so we don't need to call CardSight on every page visit.
+    if (cacheIsFresh) return
+    fetchMarketData()
   }, [cardsightCardId])
 
   return (

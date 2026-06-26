@@ -4,7 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, ExternalLink, ShoppingBag } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, ExternalLink, ShoppingBag, Upload } from 'lucide-react';
 import SaleCompleter from '@/components/SaleCompleter';
 import type { Listing, Card, Purchase } from '@/types/cards';
 
@@ -21,17 +22,58 @@ const MARKETPLACE_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-purple-100 text-purple-700',
   active: 'bg-green-100 text-green-700',
   sold: 'bg-blue-100 text-blue-700',
   expired: 'bg-gray-100 text-gray-600',
   cancelled: 'bg-red-100 text-red-600',
 };
 
+function PublishAction({ listing, onPublished }: { listing: ListingWithCard; onPublished: () => void }) {
+  const { toast } = useToast();
+  const [publishing, setPublishing] = useState(false);
+
+  if (listing.marketplace === 'ebay') {
+    const publish = async () => {
+      setPublishing(true);
+      const { data, error } = await supabase.functions.invoke('ebay-publish-listing', {
+        body: { listing_id: listing.id },
+      });
+      if (error || data?.error) {
+        toast({ title: 'Could not publish to eBay', description: data?.error ?? error?.message, variant: 'destructive' });
+      } else {
+        toast({ title: 'Published to eBay' });
+        onPublished();
+      }
+      setPublishing(false);
+    };
+    return (
+      <Button size="sm" className="h-7 px-2 text-xs bg-[#14314F] text-white" onClick={publish} disabled={publishing}>
+        {publishing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Upload className="h-3 w-3 mr-1" />}
+        Publish to eBay
+      </Button>
+    );
+  }
+
+  // No live integration for this marketplace yet — let the user flip the
+  // status manually once they've posted it there themselves.
+  const markActive = async () => {
+    const { error } = await supabase.from('listings').update({ status: 'active' }).eq('id', listing.id);
+    if (error) toast({ title: 'Error updating listing', variant: 'destructive' });
+    else onPublished();
+  };
+  return (
+    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={markActive}>
+      Mark as posted
+    </Button>
+  );
+}
+
 export default function ListingsDashboard() {
   const { user } = useAuth();
   const [listings, setListings] = useState<ListingWithCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'sold'>('active');
+  const [filter, setFilter] = useState<'all' | 'draft' | 'active' | 'sold'>('draft');
 
   const loadListings = async () => {
     if (!user) return;
@@ -73,7 +115,7 @@ export default function ListingsDashboard() {
 
       {/* Filter tabs */}
       <div className="flex gap-2">
-        {(['active', 'sold', 'all'] as const).map((f) => (
+        {(['draft', 'active', 'sold', 'all'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -138,7 +180,9 @@ export default function ListingsDashboard() {
                     <Badge variant="outline">{MARKETPLACE_LABELS[listing.marketplace]}</Badge>
                   </div>
                   <p className="text-sm text-gray-500 mt-0.5">
-                    Listed {days === 0 ? 'today' : `${days} day${days !== 1 ? 's' : ''} ago`}
+                    {listing.status === 'draft'
+                      ? 'Not yet published'
+                      : `Listed ${days === 0 ? 'today' : `${days} day${days !== 1 ? 's' : ''} ago`}`}
                     {costBasis > 0 && ` · Cost basis $${costBasis.toFixed(2)}`}
                   </p>
                 </div>
@@ -153,6 +197,9 @@ export default function ListingsDashboard() {
                           <ExternalLink className="h-3.5 w-3.5" />
                         </Button>
                       </a>
+                    )}
+                    {listing.status === 'draft' && (
+                      <PublishAction listing={listing} onPublished={loadListings} />
                     )}
                     {listing.status === 'active' && (
                       <SaleCompleter

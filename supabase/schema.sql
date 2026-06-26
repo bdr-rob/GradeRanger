@@ -189,6 +189,9 @@ CREATE TABLE IF NOT EXISTS market_valuations (
   raw_high        DECIMAL(10,2),
   graded_values   JSONB,
   data_source     VARCHAR,
+  cached_history  JSONB,
+  cached_sales    JSONB,
+  cached_listings JSONB,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -233,6 +236,7 @@ CREATE TABLE IF NOT EXISTS grading_bundle_items (
   graded_at       TIMESTAMPTZ,
   quantity        INT DEFAULT 1,
   declared_value  DECIMAL(10,2),
+  addon_ids       UUID[] DEFAULT '{}',
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(bundle_id, card_id)
 );
@@ -250,10 +254,12 @@ CREATE TABLE IF NOT EXISTS listings (
   marketplace         VARCHAR NOT NULL CHECK (marketplace IN ('tcgplayer','ebay','shopify','cardtrader','other')),
   listing_price       DECIMAL(10,2) NOT NULL,
   shipping_amount     DECIMAL(10,2) DEFAULT 0,
+  title               VARCHAR,
+  description         TEXT,
   external_listing_id VARCHAR,
   listing_url         VARCHAR,
-  status              VARCHAR DEFAULT 'active'
-                        CHECK (status IN ('active','sold','expired','cancelled')),
+  status              VARCHAR DEFAULT 'draft'
+                        CHECK (status IN ('draft','active','sold','expired','cancelled')),
   listed_at           TIMESTAMPTZ DEFAULT NOW(),
   sold_at             TIMESTAMPTZ,
   created_at          TIMESTAMPTZ DEFAULT NOW(),
@@ -293,6 +299,29 @@ CREATE POLICY "Users manage own transactions" ON transactions
   USING (EXISTS (SELECT 1 FROM cards WHERE cards.id = transactions.card_id AND cards.user_id = auth.uid()))
   WITH CHECK (EXISTS (SELECT 1 FROM cards WHERE cards.id = transactions.card_id AND cards.user_id = auth.uid()));
 
+-- ── grading_addons ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS grading_addons (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  grading_service   VARCHAR NOT NULL CHECK (grading_service IN ('PSA','BGS','CGC','TAG','SGC')),
+  name              VARCHAR NOT NULL,
+  price             DECIMAL(10,2) NOT NULL,
+  price_is_minimum  BOOLEAN DEFAULT FALSE,
+  is_active         BOOLEAN DEFAULT TRUE,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE grading_addons ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read grading_addons" ON grading_addons
+  FOR SELECT USING (true);
+
+INSERT INTO grading_addons (grading_service, name, price, price_is_minimum) VALUES
+  ('BGS', 'Autograph Card',        5.00, false),
+  ('BGS', 'Oversized Card',        8.00, false),
+  ('BGS', 'Relabel',               9.95, true),
+  ('BGS', 'Graded Card Review',    0.00, false),
+  ('BGS', 'Recase (BGS Only)',     9.95, true)
+ON CONFLICT DO NOTHING;
+
 -- ── grading_fee_schedules ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS grading_fee_schedules (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -300,6 +329,9 @@ CREATE TABLE IF NOT EXISTS grading_fee_schedules (
   tier_name       VARCHAR NOT NULL,
   price           DECIMAL(10,2) NOT NULL,
   turnaround_days INT,
+  is_active            BOOLEAN DEFAULT TRUE,
+  max_value_per_card   DECIMAL(12,2),
+  fee_percent_of_value DECIMAL(5,2),
   is_custom       BOOLEAN DEFAULT FALSE,
   user_id         UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   effective_from  DATE,
@@ -432,6 +464,16 @@ ALTER TABLE card_details_cache ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read card_details_cache" ON card_details_cache
   FOR SELECT USING (true);
 
+CREATE TABLE IF NOT EXISTS card_population_cache (
+  card_id    UUID PRIMARY KEY,
+  data       JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE card_population_cache ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read card_population_cache" ON card_population_cache
+  FOR SELECT USING (true);
+
 -- ── marketplace_connections ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS marketplace_connections (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -471,22 +513,43 @@ CREATE POLICY "Admins read audit log" ON audit_log
   );
 
 -- ── Seed: default grading fee schedules ─────────────────────
-INSERT INTO grading_fee_schedules (grading_service, tier_name, price, turnaround_days, is_custom) VALUES
-  ('PSA', 'Economy',        25.00,  120, false),
-  ('PSA', 'Standard',       50.00,   45, false),
-  ('PSA', 'Express',       150.00,   10, false),
-  ('PSA', 'Super Express', 300.00,    5, false),
-  ('BGS', 'Economy',        25.00,   90, false),
-  ('BGS', 'Standard',       75.00,   30, false),
-  ('BGS', 'Express',       150.00,   10, false),
-  ('CGC', 'Economy',        20.00,   90, false),
-  ('CGC', 'Standard',       50.00,   45, false),
-  ('CGC', 'Express',       150.00,   10, false),
-  ('TAG', 'Standard',       35.00,   60, false),
-  ('TAG', 'Express',        75.00,   10, false),
-  ('SGC', 'Economy',        18.00,   90, false),
-  ('SGC', 'Standard',       40.00,   45, false),
-  ('SGC', 'Express',       100.00,   10, false)
+-- PSA/CGC/BGS reflect each company's real current submission-form tiers and
+-- pricing (see migration 20260623060000). TAG/SGC are still placeholders —
+-- update them here the same way once their real tiers are available.
+INSERT INTO grading_fee_schedules
+  (grading_service, tier_name, price, turnaround_days, max_value_per_card, fee_percent_of_value, is_active, is_custom) VALUES
+  -- PSA — Value tiers currently paused by PSA
+  ('PSA', 'Value Bulk',         25.00,  NULL,    NULL, NULL, false, false),
+  ('PSA', 'Value Bulk Vintage', 25.00,  NULL,    NULL, NULL, false, false),
+  ('PSA', 'Value',              33.00,  NULL,    NULL, NULL, false, false),
+  ('PSA', 'Value Plus',         50.00,  NULL,    NULL, NULL, false, false),
+  ('PSA', 'Value Max',          65.00,  NULL,    NULL, NULL, false, false),
+  ('PSA', 'Regular',            80.00,  NULL,    NULL, NULL, true,  false),
+  ('PSA', 'Express',           165.00,  NULL,    NULL, NULL, true,  false),
+  ('PSA', 'Super Express',     330.00,  NULL,    NULL, NULL, true,  false),
+
+  -- CGC
+  ('CGC', 'Bulk',                                17.00, 120,    500.00, NULL, true, false),
+  ('CGC', 'Economy',                             20.00,  65,   1000.00, NULL, true, false),
+  ('CGC', 'Standard',                            55.00,  10,   3000.00, NULL, true, false),
+  ('CGC', 'Express',                            100.00,   5,  10000.00, NULL, true, false),
+  ('CGC', 'WalkThrough',                        300.00,   2, 100000.00, NULL, true, false),
+  ('CGC', 'Unlimited Value',                    300.00,   2,       NULL, 1.00, true, false),
+  ('CGC', 'Jumbo Card',                          20.00, 120,       NULL, NULL, true, false),
+  ('CGC', 'TCG, Sports and Non-Sports Coin',     20.00, 120,       NULL, NULL, true, false),
+
+  -- BGS — Base is priced separately with/without subgrades
+  ('BGS', 'Base (No Subgrades)', 14.95, 75, NULL, NULL, true, false),
+  ('BGS', 'Base (Subgrades)',    17.95, 75, NULL, NULL, true, false),
+  ('BGS', 'Standard',            34.95, 45, NULL, NULL, true, false),
+  ('BGS', 'Express',             79.95, 15, NULL, NULL, true, false),
+  ('BGS', 'Priority',           124.95,  5, NULL, NULL, true, false),
+
+  ('TAG', 'Standard',       35.00,   60, NULL, NULL, true, false),
+  ('TAG', 'Express',        75.00,   10, NULL, NULL, true, false),
+  ('SGC', 'Economy',        18.00,   90, NULL, NULL, true, false),
+  ('SGC', 'Standard',       40.00,   45, NULL, NULL, true, false),
+  ('SGC', 'Express',       100.00,   10, NULL, NULL, true, false)
 ON CONFLICT DO NOTHING;
 
 -- ── Indexes for performance ──────────────────────────────────

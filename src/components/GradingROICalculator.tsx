@@ -4,6 +4,7 @@ import { Calculator, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } f
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { GradingFeeSchedule, GradingService, GradedValues } from '@/types/cards';
 import { GRADING_SERVICES } from '@/types/cards';
 
@@ -13,10 +14,27 @@ interface Props {
   aiGrade?: number;
 }
 
+interface TierInfo {
+  price: number;
+  turnaroundDays: number | null;
+  isActive: boolean;
+  feePercentOfValue: number | null;
+}
+
 interface FeeMap {
   [service: string]: {
-    [tier: string]: number;
+    [tier: string]: TierInfo;
   };
+}
+
+function sortTiersByPrice(tiers: Record<string, TierInfo>): string[] {
+  return Object.keys(tiers).sort((a, b) => tiers[a].price - tiers[b].price);
+}
+
+function tierLabel(name: string, info: TierInfo): string {
+  const fee = `$${info.price.toFixed(2)}${info.feePercentOfValue ? ` + ${info.feePercentOfValue}% FMV` : ''}`;
+  const turnaround = info.turnaroundDays != null ? ` · ${info.turnaroundDays}d` : '';
+  return `${name} — ${fee}${turnaround}${info.isActive ? '' : ' (Paused)'}`;
 }
 
 function sortGradesDesc(grades: string[]): string[] {
@@ -25,8 +43,11 @@ function sortGradesDesc(grades: string[]): string[] {
 
 function ROIRow({
   service,
-  fee,
   tier,
+  tierOptions,
+  fee,
+  feePercentOfValue,
+  turnaroundDays,
   grade,
   estimatedValue,
   costBasis,
@@ -35,10 +56,14 @@ function ROIRow({
   expanded,
   onToggleExpand,
   onSelectGrade,
+  onSelectTier,
 }: {
   service: GradingService;
-  fee: number;
   tier: string;
+  tierOptions: { name: string; info: TierInfo }[];
+  fee: number;
+  feePercentOfValue: number | null;
+  turnaroundDays: number | null;
   grade: string;
   estimatedValue: number;
   costBasis: number;
@@ -47,6 +72,7 @@ function ROIRow({
   expanded: boolean;
   onToggleExpand: () => void;
   onSelectGrade: (grade: string) => void;
+  onSelectTier: (tier: string) => void;
 }) {
   const netReturn = estimatedValue - costBasis - fee;
   const roi = costBasis > 0 ? (netReturn / costBasis) * 100 : 0;
@@ -62,7 +88,21 @@ function ROIRow({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-[#14314F]">{service}</span>
-          <span className="text-xs text-gray-500">{tier}</span>
+          <Select value={tier} onValueChange={onSelectTier}>
+            <SelectTrigger className="h-6 w-auto text-xs gap-1 px-2 border-gray-200">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {tierOptions.map((t) => (
+                <SelectItem key={t.name} value={t.name} disabled={!t.info.isActive} className="text-xs">
+                  {tierLabel(t.name, t.info)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {turnaroundDays != null && (
+            <span className="text-xs text-gray-400">~{turnaroundDays}d turnaround</span>
+          )}
           {isPredicted && <Badge className="bg-[#47682d] text-white text-xs">Predicted grade</Badge>}
         </div>
         <div className="flex items-center gap-1">
@@ -89,7 +129,9 @@ function ROIRow({
         </div>
         <div>
           <dt>Grading fee</dt>
-          <dd className="font-medium text-gray-700">${fee.toFixed(2)}</dd>
+          <dd className="font-medium text-gray-700">
+            ${fee.toFixed(2)}{feePercentOfValue ? <span className="text-gray-400"> + {feePercentOfValue}% FMV</span> : ''}
+          </dd>
         </div>
         <div>
           <dt>ROI</dt>
@@ -141,6 +183,7 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
   const [costBasis, setCostBasis] = useState(initialCostBasis);
   const [loading, setLoading] = useState(true);
   const [gradeOverrides, setGradeOverrides] = useState<Record<string, string>>({});
+  const [tierOverrides, setTierOverrides] = useState<Record<string, string>>({});
   const [expandedService, setExpandedService] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,7 +206,12 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
       (data as GradingFeeSchedule[]).forEach((row) => {
         if (!map[row.grading_service]) map[row.grading_service] = {};
         if (!map[row.grading_service][row.tier_name]) {
-          map[row.grading_service][row.tier_name] = row.price;
+          map[row.grading_service][row.tier_name] = {
+            price: row.price,
+            turnaroundDays: row.turnaround_days ?? null,
+            isActive: row.is_active ?? true,
+            feePercentOfValue: row.fee_percent_of_value ?? null,
+          };
         }
       });
       setFees(map);
@@ -176,7 +224,10 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
   const rows: Array<{
     service: GradingService;
     tier: string;
+    tierOptions: { name: string; info: TierInfo }[];
     fee: number;
+    feePercentOfValue: number | null;
+    turnaroundDays: number | null;
     grade: string;
     estimatedValue: number;
     isPredicted: boolean;
@@ -185,10 +236,15 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
 
   GRADING_SERVICES.forEach((svc) => {
     const svcFees = fees[svc] ?? {};
-    const defaultTier = Object.keys(svcFees)[0];
+    const sortedTiers = sortTiersByPrice(svcFees);
+    // Default to the cheapest tier that's actually bookable right now (e.g.
+    // skip PSA's paused Value tiers); fall back to the cheapest overall only
+    // if every tier for this service happens to be paused.
+    const defaultTier = sortedTiers.find((t) => svcFees[t].isActive) ?? sortedTiers[0];
     if (!defaultTier) return;
 
-    const fee = svcFees[defaultTier] ?? 0;
+    const tier = tierOverrides[svc] && svcFees[tierOverrides[svc]] ? tierOverrides[svc] : defaultTier;
+    const tierInfo = svcFees[tier];
     const svcValues = (gradedValues?.[svc] ?? {}) as Record<string, number>;
     if (Object.keys(svcValues).length === 0) return;
 
@@ -205,8 +261,11 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
 
     rows.push({
       service: svc,
-      tier: defaultTier,
-      fee,
+      tier,
+      tierOptions: sortedTiers.map((name) => ({ name, info: svcFees[name] })),
+      fee: tierInfo.price,
+      feePercentOfValue: tierInfo.feePercentOfValue,
+      turnaroundDays: tierInfo.turnaroundDays,
       grade,
       estimatedValue: svcValues[grade],
       isPredicted: !override && grade === aiGradeTier,
@@ -261,6 +320,7 @@ export default function GradingROICalculator({ costBasis: initialCostBasis, grad
               expanded={expandedService === row.service}
               onToggleExpand={() => setExpandedService((s) => (s === row.service ? null : row.service))}
               onSelectGrade={(g) => setGradeOverrides((prev) => ({ ...prev, [row.service]: g }))}
+              onSelectTier={(t) => setTierOverrides((prev) => ({ ...prev, [row.service]: t }))}
             />
           ))}
         </div>

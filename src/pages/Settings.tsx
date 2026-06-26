@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Eye, EyeOff, Check, Loader2, Shield, Key, AlertCircle, User } from 'lucide-react';
+import { Eye, EyeOff, Check, Loader2, Shield, Key, AlertCircle, User, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Settings() {
@@ -20,9 +20,51 @@ export default function Settings() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentApiKey, setCurrentApiKey] = useState<any>(null);
 
+  // eBay selling connection — separate from the App ID above. Publishing
+  // listings via eBay's Sell APIs needs a user-consent OAuth token
+  // (marketplace_connections), not just the public-data App ID.
+  const [ebayConnection, setEbayConnection] = useState<any>(null);
+  const [connectingEbay, setConnectingEbay] = useState(false);
+
   useEffect(() => {
     loadCurrentApiKey();
+    loadEbayConnection();
   }, [user]);
+
+  const loadEbayConnection = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('marketplace_connections')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('platform', 'ebay')
+      .eq('is_active', true)
+      .maybeSingle();
+    setEbayConnection(data);
+  };
+
+  const connectEbay = async () => {
+    setConnectingEbay(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ebay-oauth', { body: { action: 'authorize_url' } });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      window.location.href = data.url;
+    } catch (err) {
+      toast({ title: 'Could not start eBay connection', description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
+      setConnectingEbay(false);
+    }
+  };
+
+  const disconnectEbay = async () => {
+    if (!user) return;
+    const { error } = await supabase
+      .from('marketplace_connections')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .eq('platform', 'ebay');
+    if (error) toast({ title: 'Error disconnecting eBay', variant: 'destructive' });
+    else { toast({ title: 'eBay disconnected' }); setEbayConnection(null); }
+  };
 
   const loadCurrentApiKey = async () => {
     if (!user) return;
@@ -293,6 +335,46 @@ export default function Settings() {
                 <li>• API keys are validated before being saved</li>
               </ul>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* eBay Selling Connection Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5" />
+              Sell on eBay
+            </CardTitle>
+            <CardDescription>
+              Connect your eBay seller account to publish listings directly from Grade Ranger.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {ebayConnection ? (
+              <>
+                <Alert className="border-green-200 bg-green-50">
+                  <Check className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-800">
+                    eBay seller account connected
+                    {ebayConnection.store_name && <span className="block text-sm mt-1">{ebayConnection.store_name}</span>}
+                  </AlertDescription>
+                </Alert>
+                <Button variant="destructive" onClick={disconnectEbay}>Disconnect</Button>
+              </>
+            ) : (
+              <>
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Not connected — listings can be prepared but not published to eBay until you connect.
+                  </AlertDescription>
+                </Alert>
+                <Button onClick={connectEbay} disabled={connectingEbay} className="bg-[#14314F] hover:bg-[#14314F]/90 text-white">
+                  {connectingEbay ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Connect eBay account
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 

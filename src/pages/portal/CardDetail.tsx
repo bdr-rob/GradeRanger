@@ -12,7 +12,9 @@ import { Loader2, ArrowLeft, Image, Bot, TrendingUp, Split, Clock, Pencil, X, Sa
 import AIReportViewer from '@/components/AIReportViewer';
 import MarketValuePanel from '@/components/MarketValuePanel';
 import GradingROICalculator from '@/components/GradingROICalculator';
+import PopulationReport from '@/components/PopulationReport';
 import DispositionSelector from '@/components/DispositionSelector';
+import PipelineProgress from '@/components/PipelineProgress';
 import GradingBundleManager from '@/components/GradingBundleManager';
 import { submitCardForAnalysis, pollAnalysisJob } from '@/lib/api/aiAnalysis';
 import type { Card, AIReport, Purchase, MarketValuation, CardStatus } from '@/types/cards';
@@ -69,6 +71,7 @@ export default function CardDetail() {
   const [valuation, setValuation] = useState<MarketValuation | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollingAI, setPollingAI] = useState(false);
+  const [submittingAssessment, setSubmittingAssessment] = useState(false);
 
   // Edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -157,13 +160,16 @@ export default function CardDetail() {
       toast({ title: 'No image available for analysis', variant: 'destructive' });
       return;
     }
+    setSubmittingAssessment(true);
     try {
       const backUrl = getField(card as any, 'image_back_url', 'back_image_url') || frontUrl;
       await submitCardForAnalysis(card!.id, frontUrl, backUrl);
-      toast({ title: 'Analysis started', description: 'Results will appear in under a minute.' });
+      toast({ title: 'Assessment running', description: 'AI is grading this card — results appear below in ~30s.' });
       await loadCard();
     } catch {
       toast({ title: 'Could not start analysis', variant: 'destructive' });
+    } finally {
+      setSubmittingAssessment(false);
     }
   };
 
@@ -237,6 +243,15 @@ export default function CardDetail() {
           <p className="text-xs text-gray-400 mt-1 font-mono">{c.internal_card_id}</p>
         )}
       </div>
+
+      {/* Pipeline progress */}
+      <PipelineProgress
+        card={card}
+        aiReport={aiReport}
+        valuation={valuation}
+        onRunAssessment={handleRetryAnalysis}
+        assessmentRunning={submittingAssessment || pollingAI}
+      />
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
@@ -497,6 +512,9 @@ export default function CardDetail() {
               gradedValues={(valuation?.graded_values as Record<string, Record<string, number>> | null) ?? null}
               aiGrade={aiReport?.overall_grade}
             />
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <PopulationReport cardsightCardId={c.cardsight_card_id ?? null} />
           </div>
         </TabsContent>
 

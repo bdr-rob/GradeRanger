@@ -42,11 +42,45 @@ serve(async (req: Request) => {
     const apiKey = Deno.env.get('CARDSIGHT_API_KEY')
     if (!apiKey) throw new Error('CARDSIGHT_API_KEY not set')
 
-    const { card_id, cardsight_card_id, period } = await req.json()
+    const { card_id, cardsight_card_id, period, force } = await req.json()
     if (!cardsight_card_id) return new Response(
       JSON.stringify({ error: 'cardsight_card_id required' }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
+
+    // Cache-on-read: serve from market_valuations if the full response was
+    // stored recently (< 4 h). This cuts the two CardSight API calls to zero
+    // for repeated visits within the same session or working day.
+    const CACHE_MAX_AGE_MS = 4 * 60 * 60 * 1000 // 4 hours
+    if (!force && card_id) {
+      const sb = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      )
+      const { data: cached } = await sb
+        .from('market_valuations')
+        .select('raw_median, raw_low, raw_high, graded_values, data_source, fetched_at, cached_history, cached_sales, cached_listings')
+        .eq('card_id', card_id)
+        .maybeSingle()
+
+      if (
+        cached &&
+        cached.cached_history !== null &&
+        Date.now() - new Date(cached.fetched_at).getTime() < CACHE_MAX_AGE_MS
+      ) {
+        return new Response(JSON.stringify({
+          currentPrice: cached.raw_median,
+          rawLow: cached.raw_low,
+          rawHigh: cached.raw_high,
+          gradedValues: cached.graded_values ?? {},
+          history: cached.cached_history,
+          sales: cached.cached_sales,
+          listings: cached.cached_listings,
+          usingListingsFallback: cached.data_source?.includes('listings') ?? false,
+          _source: 'cache',
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+    }
 
     const [
       { data, status: pricingStatus, errorText: pricingError },
@@ -151,6 +185,9 @@ serve(async (req: Request) => {
         graded_values: Object.keys(gradedValues).length ? gradedValues : null,
         data_source: usingListingsFallback ? 'CardSight (active listings)' : 'CardSight',
         fetched_at: new Date().toISOString(),
+        cached_history:  history.length  ? history  : null,
+        cached_sales:    sales.length    ? sales    : null,
+        cached_listings: listings.length ? listings : null,
       }, { onConflict: 'card_id' })
       if (error) console.error('market_valuations upsert error:', error)
     }

@@ -9,10 +9,12 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
-import { Loader2, Package, ChevronRight, Check, Truck, Award, Download } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, Package, ChevronRight, Check, Truck, Award, Download, Plus, Search, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import GradingBundleManager from '@/components/GradingBundleManager';
-import type { GradingBundle, GradingBundleItem, Card } from '@/types/cards';
+import type { GradingBundle, GradingBundleItem, Card, GradingAddon } from '@/types/cards';
 
 interface BundleWithItems extends GradingBundle {
   items: (GradingBundleItem & { card: Card })[];
@@ -53,6 +55,165 @@ const STATUS_COLORS: Record<string, string> = {
   returned: 'bg-green-100 text-green-700',
 };
 
+function AddCardsDialog({ bundle, existingCardIds, onAdded }: {
+  bundle: BundleWithItems;
+  existingCardIds: Set<string>;
+  onAdded: () => void;
+}) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [cards, setCards] = useState<Card[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open || !user) return;
+    setLoading(true);
+    supabase
+      .from('cards')
+      .select('*')
+      .eq('user_id', user.id)
+      .not('status', 'in', '("listed","sold")')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setCards((data ?? []) as Card[]);
+        setLoading(false);
+      });
+  }, [open, user]);
+
+  const filtered = cards.filter((c) => {
+    if (existingCardIds.has(c.id)) return false;
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return (
+      (c.player_name ?? '').toLowerCase().includes(q) ||
+      (c.card_name ?? '').toLowerCase().includes(q) ||
+      ((c as any).set_name ?? (c as any).card_set ?? '').toLowerCase().includes(q)
+    );
+  });
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleAdd = async () => {
+    if (selected.size === 0) return;
+    setSaving(true);
+    const rows = [...selected].map((cardId) => ({
+      bundle_id: bundle.id,
+      card_id: cardId,
+      grading_fee: 0,
+    }));
+    const { error } = await supabase.from('grading_bundle_items').insert(rows);
+    if (error) {
+      toast({ title: 'Error adding cards', variant: 'destructive' });
+    } else {
+      // Mark cards as grading
+      await Promise.all([...selected].map((id) =>
+        supabase.from('cards').update({ status: 'grading' }).eq('id', id)
+      ));
+      toast({ title: `${selected.size} card${selected.size > 1 ? 's' : ''} added to bundle` });
+      setSelected(new Set());
+      setOpen(false);
+      onAdded();
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="border-[#47682d] text-[#47682d] hover:bg-[#47682d]/5">
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add cards
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add cards to "{bundle.name}"</DialogTitle>
+        </DialogHeader>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            placeholder="Search by player, card name, or set…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-8 h-8 text-sm"
+            autoFocus
+          />
+        </div>
+
+        {/* Card list */}
+        <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
+          {loading && (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-6">
+              {query ? 'No matching cards' : 'No cards available to add'}
+            </p>
+          )}
+          {filtered.map((card) => {
+            const isSelected = selected.has(card.id);
+            const imageUrl = (card as any).image_front_url ?? null;
+            return (
+              <label
+                key={card.id}
+                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                  isSelected ? 'bg-[#47682d]/10 border border-[#47682d]/30' : 'hover:bg-gray-50 border border-transparent'
+                }`}
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => toggle(card.id)}
+                />
+                {imageUrl
+                  ? <img src={imageUrl} alt="" className="w-8 h-11 object-contain rounded shrink-0 bg-gray-50" />
+                  : <div className="w-8 h-11 rounded bg-gray-100 shrink-0" />
+                }
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {card.player_name || card.card_name}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {[(card as any).set_name ?? (card as any).card_set, card.year].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-xs shrink-0">{card.status}</Badge>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-2 border-t">
+          <p className="text-xs text-gray-500">
+            {selected.size > 0 ? `${selected.size} card${selected.size > 1 ? 's' : ''} selected` : 'Select cards above'}
+          </p>
+          <Button
+            className="bg-[#47682d] hover:bg-[#47682d]/90 text-white"
+            disabled={selected.size === 0 || saving}
+            onClick={handleAdd}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Add to bundle
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate: () => void }) {
   const { toast } = useToast();
   const [tracking, setTracking] = useState(bundle.tracking_number ?? '');
@@ -64,8 +225,36 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
   const [declaredValueInputs, setDeclaredValueInputs] = useState<Record<string, string>>(
     Object.fromEntries(bundle.items.map((i) => [i.id, i.declared_value != null ? String(i.declared_value) : '']))
   );
+  const [addons, setAddons] = useState<GradingAddon[]>([]);
+  const [addonSelections, setAddonSelections] = useState<Record<string, string[]>>(
+    Object.fromEntries(bundle.items.map((i) => [i.id, i.addon_ids ?? []]))
+  );
 
-  const totalFee = bundle.items.reduce((sum, item) => sum + (item.grading_fee ?? 0), 0);
+  useEffect(() => {
+    supabase
+      .from('grading_addons')
+      .select('*')
+      .eq('grading_service', bundle.grading_service)
+      .eq('is_active', true)
+      .order('price', { ascending: true })
+      .then(({ data }) => setAddons((data as GradingAddon[]) ?? []));
+  }, [bundle.grading_service]);
+
+  const addonCost = (itemId: string) =>
+    (addonSelections[itemId] ?? []).reduce((sum, id) => sum + (addons.find((a) => a.id === id)?.price ?? 0), 0);
+
+  const toggleAddon = async (itemId: string, addonId: string) => {
+    const current = addonSelections[itemId] ?? [];
+    const next = current.includes(addonId) ? current.filter((id) => id !== addonId) : [...current, addonId];
+    setAddonSelections((prev) => ({ ...prev, [itemId]: next }));
+    const { error } = await supabase
+      .from('grading_bundle_items')
+      .update({ addon_ids: next })
+      .eq('id', itemId);
+    if (error) toast({ title: 'Error saving add-ons', variant: 'destructive' });
+  };
+
+  const totalFee = bundle.items.reduce((sum, item) => sum + (item.grading_fee ?? 0) + addonCost(item.id), 0);
   const totalDeclaredValue = bundle.items.reduce(
     (sum, item) => sum + (item.declared_value ?? 0) * (item.quantity ?? 1), 0
   );
@@ -97,6 +286,16 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
     if (error) toast({ title: 'Error saving tracking', variant: 'destructive' });
     else toast({ title: 'Tracking number saved' });
     setSavingTracking(false);
+  };
+
+  const removeItem = async (itemId: string, cardId: string) => {
+    const { error } = await supabase.from('grading_bundle_items').delete().eq('id', itemId);
+    if (error) {
+      toast({ title: 'Error removing card', variant: 'destructive' });
+    } else {
+      await supabase.from('cards').update({ status: 'intake' }).eq('id', cardId);
+      onUpdate();
+    }
   };
 
   const saveGrade = async (itemId: string, cardId: string) => {
@@ -135,9 +334,13 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
 
   const exportSubmissionForm = () => {
     const rows: (string | number)[][] = [
-      ['Year', 'Product', 'Card Number', 'Player/Character Name', 'Card Type/Attributes', 'Quantity', 'Declared Value'],
+      ['Year', 'Product', 'Card Number', 'Player/Character Name', 'Card Type/Attributes', 'Quantity', 'Declared Value', 'Add-ons'],
       ...bundle.items.map((item) => {
         const card = item.card as any;
+        const addonNames = (addonSelections[item.id] ?? [])
+          .map((id) => addons.find((a) => a.id === id)?.name)
+          .filter(Boolean)
+          .join('; ');
         return [
           card?.year ?? '',
           card?.release_name ?? card?.set_name ?? '',
@@ -146,6 +349,7 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
           cardTypeAttributes(card ?? {}),
           item.quantity ?? 1,
           item.declared_value ?? '',
+          addonNames,
         ];
       }),
     ];
@@ -197,9 +401,16 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
 
       {/* Submission form */}
       <div>
-        <div className="flex justify-between items-center mb-2">
+        <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-700">Submission form ({bundle.items.length} cards)</p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {bundle.status === 'building' && (
+              <AddCardsDialog
+                bundle={bundle}
+                existingCardIds={new Set(bundle.items.map((i) => i.card_id))}
+                onAdded={onUpdate}
+              />
+            )}
             <p className="text-sm text-gray-500">
               Declared total: <span className="font-semibold">${totalDeclaredValue.toFixed(2)}</span>
               {' · '}Fees: <span className="font-semibold">${totalFee.toFixed(2)}</span>
@@ -213,7 +424,17 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
         </div>
 
         {bundle.items.length === 0 ? (
-          <p className="text-sm text-gray-400">No cards in this bundle yet.</p>
+          <div className="flex flex-col items-center gap-3 py-8 text-gray-400">
+            <Package className="h-8 w-8 opacity-40" />
+            <p className="text-sm">No cards in this bundle yet.</p>
+            {bundle.status === 'building' && (
+              <AddCardsDialog
+                bundle={bundle}
+                existingCardIds={new Set()}
+                onAdded={onUpdate}
+              />
+            )}
+          </div>
         ) : (
           <div className="rounded-lg border overflow-hidden">
             <table className="w-full text-sm">
@@ -226,7 +447,9 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
                   <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Type/Attributes</th>
                   <th className="text-right text-xs font-medium text-gray-500 px-3 py-2 w-20">Qty</th>
                   <th className="text-right text-xs font-medium text-gray-500 px-3 py-2 w-28">Declared Value</th>
+                  {addons.length > 0 && <th className="text-left text-xs font-medium text-gray-500 px-3 py-2">Add-ons</th>}
                   <th className="text-right text-xs font-medium text-gray-500 px-3 py-2">Grade</th>
+                  {bundle.status === 'building' && <th className="w-8" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -270,6 +493,42 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
                           />
                         </div>
                       </td>
+                      {addons.length > 0 && (
+                        <td className="px-3 py-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-[#14314F] border border-gray-200 rounded px-2 py-1">
+                                {(addonSelections[item.id]?.length ?? 0) > 0 ? (
+                                  <>
+                                    {addonSelections[item.id].length} selected
+                                    <span className="text-gray-400">(+${addonCost(item.id).toFixed(2)})</span>
+                                  </>
+                                ) : (
+                                  <><Plus className="h-3 w-3" /> Add-ons</>
+                                )}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64 p-2" align="start">
+                              <div className="space-y-1">
+                                {addons.map((addon) => (
+                                  <label key={addon.id} className="flex items-center justify-between gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                                    <span className="flex items-center gap-2">
+                                      <Checkbox
+                                        checked={(addonSelections[item.id] ?? []).includes(addon.id)}
+                                        onCheckedChange={() => toggleAddon(item.id, addon.id)}
+                                      />
+                                      {addon.name}
+                                    </span>
+                                    <span className="text-xs text-gray-400">
+                                      {addon.price_is_minimum ? 'from ' : ''}${addon.price.toFixed(2)}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </td>
+                      )}
                       <td className="px-3 py-2 text-right">
                         {item.official_grade ? (
                           <Badge className="bg-[#47682d] text-white">Grade: {item.official_grade}</Badge>
@@ -289,6 +548,17 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
                           <span className="text-gray-300">—</span>
                         )}
                       </td>
+                      {bundle.status === 'building' && (
+                        <td className="px-2 py-2">
+                          <button
+                            onClick={() => removeItem(item.id, item.card_id)}
+                            className="text-gray-300 hover:text-red-400 transition-colors"
+                            title="Remove from bundle"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

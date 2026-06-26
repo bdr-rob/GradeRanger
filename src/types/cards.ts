@@ -7,7 +7,7 @@ export type CardStatus = 'intake' | 'collection' | 'grading' | 'listed' | 'sold'
 export type GradingService = 'PSA' | 'BGS' | 'CGC' | 'TAG' | 'SGC';
 export type GradingBundleStatus = 'building' | 'submitted' | 'at_grader' | 'returned';
 export type ListingMarketplace = 'tcgplayer' | 'ebay' | 'shopify' | 'cardtrader' | 'other';
-export type ListingStatus = 'active' | 'sold' | 'expired' | 'cancelled';
+export type ListingStatus = 'draft' | 'active' | 'sold' | 'expired' | 'cancelled';
 export type AIReportStatus = 'pending' | 'processing' | 'complete' | 'failed';
 
 export interface Card {
@@ -117,8 +117,19 @@ export interface GradingBundleItem {
   graded_at?: string;
   quantity?: number;
   declared_value?: number;
+  addon_ids?: string[];
   created_at: string;
   card?: Card;
+}
+
+export interface GradingAddon {
+  id: string;
+  grading_service: GradingService;
+  name: string;
+  price: number;
+  price_is_minimum?: boolean;
+  is_active?: boolean;
+  created_at: string;
 }
 
 export interface Listing {
@@ -128,6 +139,8 @@ export interface Listing {
   marketplace: ListingMarketplace;
   listing_price: number;
   shipping_amount?: number;
+  title?: string;
+  description?: string;
   external_listing_id?: string;
   listing_url?: string;
   status: ListingStatus;
@@ -158,6 +171,9 @@ export interface GradingFeeSchedule {
   tier_name: string;
   price: number;
   turnaround_days?: number;
+  is_active?: boolean;
+  max_value_per_card?: number;
+  fee_percent_of_value?: number;
   is_custom: boolean;
   user_id?: string;
   effective_from?: string;
@@ -180,9 +196,9 @@ export const PURCHASE_SOURCES = [
 export const GRADING_SERVICES: GradingService[] = ['PSA', 'BGS', 'CGC', 'TAG', 'SGC'];
 
 export const GRADING_SERVICE_TIERS: Record<GradingService, string[]> = {
-  PSA: ['Economy', 'Standard', 'Express', 'Super Express', 'Walk-Through'],
-  BGS: ['Economy', 'Standard', 'Express', 'Pristine'],
-  CGC: ['Economy', 'Standard', 'Express'],
+  PSA: ['Value Bulk', 'Value Bulk Vintage', 'Value', 'Value Plus', 'Value Max', 'Regular', 'Express', 'Super Express'],
+  BGS: ['Base (No Subgrades)', 'Base (Subgrades)', 'Standard', 'Express', 'Priority'],
+  CGC: ['Bulk', 'Economy', 'Standard', 'Express', 'WalkThrough', 'Unlimited Value', 'Jumbo Card', 'TCG, Sports and Non-Sports Coin'],
   TAG: ['Standard', 'Express'],
   SGC: ['Economy', 'Standard', 'Express'],
 };

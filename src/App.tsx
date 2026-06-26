@@ -34,9 +34,12 @@ import GradingDecisionsPage from "./pages/portal/GradingDecisionsPage";
 import CardIntake from "./pages/portal/CardIntake";
 import CardDetail from "./pages/portal/CardDetail";
 import ListingsDashboard from "./pages/portal/ListingsDashboard";
+import ListingNew from "./pages/portal/ListingNew";
+import EbayCallback from "./pages/portal/EbayCallback";
 import Admin from "./pages/portal/Admin";
 import PortalPortfolio from "./pages/portal/PortalPortfolio";
 import Catalog from "./pages/portal/Catalog";
+import Research from "./pages/portal/Research";
 
 
 const queryClient = new QueryClient();
@@ -85,7 +88,10 @@ const App = () => (
                 <Route path="cards/:id" element={<CardDetail />} />
                 <Route path="grading" element={<GradingDecisionsPage />} />
                 <Route path="catalog" element={<Catalog />} />
+                <Route path="research" element={<Research />} />
                 <Route path="listings" element={<ListingsDashboard />} />
+                <Route path="listings/new" element={<ListingNew />} />
+                <Route path="ebay/callback" element={<EbayCallback />} />
                 <Route path="portfolio" element={<PortalPortfolio />} />
                 <Route path="admin" element={<Admin />} />
                 
