@@ -2,7 +2,8 @@ import { useState, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { recognizeCards, RecognizedCard, ScannedImage } from '@/lib/ximilar'
+import { RecognizedCard, ScannedImage } from '@/lib/ximilar'
+import { recognizeRawCardFromImage, getCardHedgeMarketPrice } from '@/lib/cardhedge'
 import { submitCardForAnalysis } from '@/lib/api/aiAnalysis'
 import { convertTifToJpeg, isTifFile } from '@/lib/tifConverter'
 import { resizeDataUrl } from '@/lib/imageUtils'
@@ -60,11 +61,16 @@ async function processFile(file: File): Promise<{ base64: string; preview: strin
   return { preview: resized, base64: resized.split(',')[1] }
 }
 
-async function fetchMarketValue(cardsightCardId: string): Promise<number | null> {
-  const { data } = await supabase.functions.invoke('cardsight-market', {
-    body: { cardsight_card_id: cardsightCardId },
-  })
-  return data?.currentPrice ?? null
+async function fetchMarketValue(params: {
+  cardHedgeId?: string | null
+  player: string; year: string; cardName: string; setName: string
+}): Promise<number | null> {
+  const { marketValue } = await getCardHedgeMarketPrice(
+    params.cardHedgeId
+      ? { cardHedgeId: params.cardHedgeId }
+      : { query: [params.year, params.player, params.cardName, params.setName].filter(Boolean).join(' ').trim() }
+  )
+  return marketValue
 }
 
 // ── Queue item card ───────────────────────────────────────────────────────────
@@ -251,7 +257,7 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
     setQueue(singleMode ? [newItem] : (prev) => [newItem, ...prev])
 
     try {
-      const [recognized] = await recognizeCards([image])
+      const recognized = await recognizeRawCardFromImage(image)
       const m = recognized.bestMatch
 
       const updated: Partial<QueueItem> = {
@@ -268,12 +274,19 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
         item.localId === localId ? { ...item, ...updated } : item
       ))
 
-      // Auto-fetch market value if we have a cardsight ID
-      if (recognized.cardsightCardId) {
+      // Auto-fetch market value via Card Hedger if we have enough card info
+      const hasCardInfo = m?.player || m?.name || m?.set_name
+      if (hasCardInfo) {
         setQueue((prev) => prev.map((item) =>
           item.localId === localId ? { ...item, marketLoading: true } : item
         ))
-        const value = await fetchMarketValue(recognized.cardsightCardId)
+        const value = await fetchMarketValue({
+          cardHedgeId: recognized.cardHedgeId,
+          player:      m?.player   ?? '',
+          year:        m?.year     ?? '',
+          cardName:    m?.name     ?? '',
+          setName:     m?.set_name ?? '',
+        })
         setQueue((prev) => prev.map((item) =>
           item.localId === localId ? { ...item, marketValue: value, marketLoading: false } : item
         ))

@@ -16,17 +16,19 @@ import { useToast } from '@/hooks/use-toast'
 import {
   Package, TrendingUp, TrendingDown, DollarSign, BarChart2,
   ScanLine, Award, Tag, CheckCircle2, Plus, ArrowRight,
-  ExternalLink, ChevronDown, ChevronRight as ChevronRightIcon, Loader2,
+  ExternalLink, ChevronDown, ChevronRight as ChevronRightIcon, Loader2, Link2, Trash2,
 } from 'lucide-react'
 import type { Card, Purchase, AIReport, MarketValuation, GradingBundle, GradingService } from '@/types/cards'
 import { GRADING_SERVICES, GRADING_SERVICE_TIERS } from '@/types/cards'
+import ConfirmGradeDialog from '@/components/portal/ConfirmGradeDialog'
+import LinkCardHedgerDialog from '@/components/portal/LinkCardHedgerDialog'
 
 // Status a card can be moved to from the kanban
 const NEXT_STATUSES: Record<string, { label: string; status: string }[]> = {
-  intake:  [{ label: 'Send to grading', status: 'grading' }, { label: 'List it', status: 'listed' }],
-  grading: [{ label: 'Mark as listed', status: 'listed' }, { label: 'Back to intake', status: 'intake' }],
-  listed:  [{ label: 'Mark as sold', status: 'sold' }, { label: 'Back to grading', status: 'grading' }],
-  sold:    [{ label: 'Back to listed', status: 'listed' }],
+  intake:  [{ label: 'Send to grading', status: 'grading' }, { label: 'List it', status: 'listed' }, { label: 'Move to collection', status: 'collection' }],
+  grading: [{ label: 'Mark as listed', status: 'listed' }, { label: 'Back to intake', status: 'intake' }, { label: 'Move to collection', status: 'collection' }],
+  listed:  [{ label: 'Mark as sold', status: 'sold' }, { label: 'Back to grading', status: 'grading' }, { label: 'Move to collection', status: 'collection' }],
+  sold:    [{ label: 'Back to listed', status: 'listed' }, { label: 'Move to collection', status: 'collection' }],
 }
 
 const BUNDLE_STATUS_COLORS: Record<string, string> = {
@@ -279,7 +281,11 @@ function CardModal({
   onStatusChange: (id: string, status: string) => Promise<void>
   onGradingBundleAdd: (cardId: string, bundleId: string) => Promise<void>
 }) {
-  const [showBundlePicker, setShowBundlePicker] = useState(false)
+  const [showBundlePicker,   setShowBundlePicker]   = useState(false)
+  const [showConfirmGrade,   setShowConfirmGrade]   = useState(false)
+  const [showLinkDialog,     setShowLinkDialog]     = useState(false)
+  const [confirmDelete,      setConfirmDelete]      = useState(false)
+  const [deleting,           setDeleting]           = useState(false)
   const cost  = cardCost(card)
   const value = cardValue(card)
   const pl    = value - cost
@@ -297,6 +303,13 @@ function CardModal({
 
   const handleBundleConfirm = async (bundleId: string) => {
     await onGradingBundleAdd(card.id, bundleId)
+    onClose()
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    await supabase.from('cards').delete().eq('id', card.id)
+    setDeleting(false)
     onClose()
   }
 
@@ -369,7 +382,31 @@ function CardModal({
               </div>
             )}
 
-            <div className="pt-1 border-t">
+            {/* Confirm Grade — shown for cards in grading status */}
+            {card.status === 'grading' && (
+              <div className="pt-1 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start gap-2 text-amber-700 border-amber-200 hover:bg-amber-50"
+                  onClick={() => setShowConfirmGrade(true)}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  Confirm Grade (returned from grader)
+                </Button>
+              </div>
+            )}
+
+            <div className="pt-1 border-t space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                onClick={() => setShowLinkDialog(true)}
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                {(card as any).cardhedge_card_id ? 'Re-link to Card Hedger' : 'Link to Card Hedger'}
+              </Button>
               <Link
                 to={`/portal/cards/${card.id}`}
                 onClick={onClose}
@@ -378,10 +415,54 @@ function CardModal({
                 <ExternalLink className="w-3.5 h-3.5" />
                 View full details & edit
               </Link>
+              {confirmDelete ? (
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm" variant="destructive"
+                    className="flex-1"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                    Yes, delete
+                  </Button>
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm" variant="ghost"
+                  className="w-full justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete card
+                </Button>
+              )}
             </div>
           </>
         )}
       </DialogContent>
+
+      <ConfirmGradeDialog
+        cardId={card.id}
+        open={showConfirmGrade}
+        onOpenChange={setShowConfirmGrade}
+        onConfirmed={onClose}
+      />
+      <LinkCardHedgerDialog
+        cardId={card.id}
+        cardName={card.player_name || card.card_name || undefined}
+        playerName={(card as any).player_name ?? undefined}
+        year={(card as any).year ?? undefined}
+        setName={(card as any).set_name ?? undefined}
+        cardNumber={(card as any).card_number ?? undefined}
+        frontImageUrl={(card as any).front_image_url ?? null}
+        open={showLinkDialog}
+        onOpenChange={setShowLinkDialog}
+        onLinked={onClose}
+      />
     </Dialog>
   )
 }

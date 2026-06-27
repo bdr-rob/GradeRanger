@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Package, ChevronRight, Check, Truck, Award, Download, Plus, Search, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import GradingBundleManager from '@/components/GradingBundleManager';
+import ConfirmGradeDialog from '@/components/portal/ConfirmGradeDialog';
 import type { GradingBundle, GradingBundleItem, Card, GradingAddon } from '@/types/cards';
 
 interface BundleWithItems extends GradingBundle {
@@ -219,6 +220,7 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
   const [tracking, setTracking] = useState(bundle.tracking_number ?? '');
   const [savingTracking, setSavingTracking] = useState(false);
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
+  const [confirmGradeCardId, setConfirmGradeCardId] = useState<string | null>(null);
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
     Object.fromEntries(bundle.items.map((i) => [i.id, String(i.quantity ?? 1)]))
   );
@@ -533,16 +535,25 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
                         {item.official_grade ? (
                           <Badge className="bg-[#47682d] text-white">Grade: {item.official_grade}</Badge>
                         ) : bundle.status === 'returned' ? (
-                          <div className="flex gap-1 items-center justify-end">
-                            <Input
-                              className="h-7 w-16 text-xs"
-                              placeholder="Grade"
-                              value={gradeInputs[item.id] ?? ''}
-                              onChange={(e) => setGradeInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            />
-                            <Button size="sm" className="h-7 px-2 text-xs bg-[#47682d] text-white" onClick={() => saveGrade(item.id, item.card_id)}>
-                              Save
-                            </Button>
+                          <div className="flex flex-col gap-1 items-end">
+                            <div className="flex gap-1 items-center">
+                              <Input
+                                className="h-7 w-16 text-xs"
+                                placeholder="Grade"
+                                value={gradeInputs[item.id] ?? ''}
+                                onChange={(e) => setGradeInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                              />
+                              <Button size="sm" className="h-7 px-2 text-xs bg-[#47682d] text-white" onClick={() => saveGrade(item.id, item.card_id)}>
+                                Save
+                              </Button>
+                            </div>
+                            <button
+                              onClick={() => setConfirmGradeCardId(item.card_id)}
+                              className="text-xs text-amber-600 hover:underline flex items-center gap-1"
+                            >
+                              <Award className="w-3 h-3" />
+                              Scan slab
+                            </button>
                           </div>
                         ) : (
                           <span className="text-gray-300">—</span>
@@ -567,6 +578,15 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
           </div>
         )}
       </div>
+
+      {confirmGradeCardId && (
+        <ConfirmGradeDialog
+          cardId={confirmGradeCardId}
+          open={!!confirmGradeCardId}
+          onOpenChange={(open) => { if (!open) setConfirmGradeCardId(null) }}
+          onConfirmed={() => { setConfirmGradeCardId(null); onUpdate(); }}
+        />
+      )}
     </div>
   );
 }

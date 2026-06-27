@@ -9,11 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
-
-const PURCHASE_LOCATIONS = [
-  'eBay', 'PWCC', 'Goldin', 'Heritage Auctions', 'Local Card Shop',
-  'Card Show', 'Facebook Marketplace', 'FaceBook Group','Whatnot', 'Fanatics', 'Other'
-]
+import { PURCHASE_LOCATIONS } from '@/lib/purchaseLocations'
 
 interface CardState {
   player: string
@@ -27,6 +23,8 @@ interface CardState {
   company: string
   purchasePrice: string
   purchaseLocation: string
+  purchaseOrder: string
+  purchaseLocationOther: string
   rarity: string
   language: string
   release_date: string
@@ -58,8 +56,10 @@ function initState(card: RecognizedCard): CardState {
     parallel:         card.bestMatch?.parallel     ?? '',
     variation:        card.bestMatch?.variation    ?? '',
     company:          card.bestMatch?.company      ?? '',
-    purchasePrice:    card.purchasePrice           ?? '',
-    purchaseLocation: card.purchaseLocation        ?? '',
+    purchasePrice:         card.purchasePrice    ?? '',
+    purchaseLocation:      card.purchaseLocation ?? '',
+    purchaseOrder:         '',
+    purchaseLocationOther: '',
     rarity:           card.bestMatch?.rarity           ?? '',
     language:         card.bestMatch?.language         ?? '',
     release_date:     card.bestMatch?.release_date     ?? '',
@@ -158,7 +158,10 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
       
           // Purchase info
           purchase_price:    parseFloat(state.purchasePrice) || null,
-          purchase_location: state.purchaseLocation || null,
+          purchase_location: state.purchaseLocation === 'Other'
+            ? (state.purchaseLocationOther || 'Other')
+            : (state.purchaseLocation || null),
+          purchase_order:    state.purchaseOrder || null,
       
           // CardSight IDs & market
           cardsight_card_id: card.cardsightCardId || null,
@@ -332,6 +335,23 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                         ))}
                       </SelectContent>
                     </Select>
+                    {state.purchaseLocation === 'Other' && (
+                      <Input
+                        value={state.purchaseLocationOther}
+                        onChange={(e) => update(i, 'purchaseLocationOther', e.target.value)}
+                        placeholder="Where did you buy it?"
+                        className="mt-1.5"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Order #</Label>
+                    <Input
+                      value={state.purchaseOrder}
+                      onChange={(e) => update(i, 'purchaseOrder', e.target.value)}
+                      placeholder="Optional"
+                      className="mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Sport / Category</Label>

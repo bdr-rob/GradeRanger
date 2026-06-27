@@ -1,6 +1,22 @@
 import { supabase } from './supabase'
 
 export type CardType = 'sport' | 'tcg' | 'slab' | 'ocr'
+export type SlabMode = 'slab_id' | 'slab_grade'
+
+export interface SlabResult {
+  localId:          string
+  image:            ScannedImage
+  gradeCompany:     string
+  gradeValue:       string
+  certNumber:       string
+  player:           string
+  year:             string
+  setName:          string
+  cardNumber:       string
+  confidence:       number
+  purchasePrice:    string
+  purchaseLocation: string
+}
 
 export interface ScannedImage {
   id: string
@@ -48,6 +64,7 @@ export interface RecognizedCard {
   purchaseLocation: string
   confirmed:        boolean
   cardsightCardId:  string | null
+  cardHedgeId:      string | null
   marketValue:      number | null
 }
 
@@ -109,6 +126,37 @@ function parseCardSightDetection(detection: any): { match: XimilarMatch | null; 
   return { match, confidence }
 }
 
+export async function recognizeSlab(
+  image: ScannedImage,
+  mode: SlabMode = 'slab_id',
+): Promise<SlabResult> {
+  const { data, error } = await supabase.functions.invoke('ximilar-recognize', {
+    body: {
+      mode,
+      images: [{ id: image.id, base64: image.base64 }],
+    },
+  })
+
+  if (error) throw new Error(error.message)
+  if (data?.error) throw new Error(data.error)
+
+  const info = data?.slabInfo ?? {}
+  return {
+    localId:          image.id,
+    image,
+    gradeCompany:     info.gradeCompany  ?? '',
+    gradeValue:       info.gradeValue    ?? '',
+    certNumber:       info.certNumber    ?? '',
+    player:           info.player        ?? '',
+    year:             info.year          ?? '',
+    setName:          info.setName       ?? '',
+    cardNumber:       info.cardNumber    ?? '',
+    confidence:       info.confidence    ?? 0,
+    purchasePrice:    '',
+    purchaseLocation: '',
+  }
+}
+
 export async function recognizeCards(
   images: ScannedImage[],
   _cardType: CardType = 'auto'
@@ -147,6 +195,7 @@ export async function recognizeCards(
       purchaseLocation: '',
       confirmed:        false,
       cardsightCardId:  result?.cardsightCardId ?? null,
+      cardHedgeId:      null,
       marketValue:      result?.marketValue ?? null,
     }
   })

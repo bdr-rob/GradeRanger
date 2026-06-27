@@ -1,0 +1,1 @@
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS cardhedge_card_id VARCHAR;

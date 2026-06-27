@@ -1,0 +1,17 @@
+export const PURCHASE_LOCATIONS = [
+  'eBay',
+  'PWCC',
+  'Goldin',
+  'Heritage Auctions',
+  'Arena Club',
+  'Crown Cards',
+  'Packz',
+  'Rips',
+  'Local Card Shop',
+  'Card Show',
+  'Facebook Marketplace',
+  'Facebook Group',
+  'Whatnot',
+  'Fanatics',
+  'Other',
+]
