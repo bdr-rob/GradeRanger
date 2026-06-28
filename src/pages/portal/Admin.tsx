@@ -8,9 +8,141 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, ShieldAlert, Users, DollarSign, Settings } from 'lucide-react';
+import { Loader2, ShieldAlert, Users, DollarSign, Settings, CreditCard, Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import type { GradingFeeSchedule, GradingService } from '@/types/cards';
 import { GRADING_SERVICES } from '@/types/cards';
+
+// ── Subscription plan types ───────────────────────────────────────────────────
+
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  price_monthly: number;
+  price_annual: number | null;
+  stripe_price_id_monthly: string | null;
+  stripe_price_id_annual: string | null;
+  features: Record<string, any>;
+  is_active: boolean;
+  sort_order: number;
+}
+
+const FEATURE_PRESETS: { key: string; label: string; type: 'boolean' | 'number' }[] = [
+  { key: 'max_cards',   label: 'Max cards (-1 = unlimited)', type: 'number'  },
+  { key: 'shipping',    label: 'Shipping labels',            type: 'boolean' },
+  { key: 'portfolio',   label: 'Portfolio tracking',         type: 'boolean' },
+  { key: 'grading',     label: 'Grading bundles',            type: 'boolean' },
+  { key: 'analytics',   label: 'Advanced analytics',         type: 'boolean' },
+  { key: 'multi_user',  label: 'Multi-user (future)',         type: 'boolean' },
+]
+
+function PlanForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: Partial<SubscriptionPlan>;
+  onSave: (data: Partial<SubscriptionPlan>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name,         setName]         = useState(initial?.name ?? '');
+  const [description,  setDescription]  = useState(initial?.description ?? '');
+  const [priceMonthly, setPriceMonthly] = useState((initial?.price_monthly ?? 0).toString());
+  const [priceAnnual,  setPriceAnnual]  = useState((initial?.price_annual ?? '').toString());
+  const [stripeMo,     setStripeMo]     = useState(initial?.stripe_price_id_monthly ?? '');
+  const [stripeAn,     setStripeAn]     = useState(initial?.stripe_price_id_annual ?? '');
+  const [sortOrder,    setSortOrder]    = useState((initial?.sort_order ?? 0).toString());
+  const [features,     setFeatures]     = useState<Record<string, any>>(initial?.features ?? {});
+  const [saving,       setSaving]       = useState(false);
+
+  function setFeature(key: string, val: any) {
+    setFeatures((prev) => ({ ...prev, [key]: val }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave({
+      name, description: description || null,
+      price_monthly: parseFloat(priceMonthly) || 0,
+      price_annual:  priceAnnual ? parseFloat(priceAnnual) : null,
+      stripe_price_id_monthly: stripeMo || null,
+      stripe_price_id_annual:  stripeAn || null,
+      sort_order: parseInt(sortOrder) || 0,
+      features,
+    });
+    setSaving(false);
+  }
+
+  return (
+    <div className="border rounded-xl p-5 space-y-4 bg-gray-50">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5 col-span-2">
+          <Label>Plan name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Pro" />
+        </div>
+        <div className="space-y-1.5 col-span-2">
+          <Label>Description</Label>
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Monthly price ($)</Label>
+          <Input type="number" step="0.01" value={priceMonthly} onChange={(e) => setPriceMonthly(e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Annual price ($ / yr, optional)</Label>
+          <Input type="number" step="0.01" value={priceAnnual} onChange={(e) => setPriceAnnual(e.target.value)} placeholder="Optional" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Stripe price ID (monthly)</Label>
+          <Input value={stripeMo} onChange={(e) => setStripeMo(e.target.value)} placeholder="price_..." />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Stripe price ID (annual)</Label>
+          <Input value={stripeAn} onChange={(e) => setStripeAn(e.target.value)} placeholder="price_..." />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Sort order</Label>
+          <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Features</p>
+        <div className="grid grid-cols-2 gap-2">
+          {FEATURE_PRESETS.map(({ key, label, type }) => (
+            <div key={key} className="flex items-center gap-2">
+              {type === 'boolean' ? (
+                <button
+                  type="button"
+                  onClick={() => setFeature(key, !features[key])}
+                  className={'w-8 h-4 rounded-full transition-colors ' + (features[key] ? 'bg-[#47682d]' : 'bg-gray-200')}
+                >
+                  <span className={'block w-3 h-3 rounded-full bg-white shadow transition-transform mx-0.5 ' + (features[key] ? 'translate-x-4' : 'translate-x-0')} />
+                </button>
+              ) : (
+                <Input
+                  type="number"
+                  className="h-6 w-20 text-xs"
+                  value={features[key] ?? ''}
+                  onChange={(e) => setFeature(key, parseInt(e.target.value))}
+                  placeholder="-1"
+                />
+              )}
+              <span className="text-xs text-gray-600">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button size="sm" onClick={handleSave} disabled={saving || !name} className="bg-[#14314F] text-white">
+          {saving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null} Save plan
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
 
 interface Profile {
   id: string;
@@ -75,7 +207,9 @@ export default function AdminPortal() {
   const [loading, setLoading] = useState(true);
   const [fees, setFees] = useState<GradingFeeSchedule[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
-  const [feeFilter, setFeeFilter] = useState<GradingService>('PSA');
+  const [feeFilter,   setFeeFilter]   = useState<GradingService>('PSA');
+  const [plans,       setPlans]       = useState<SubscriptionPlan[]>([]);
+  const [editingPlan, setEditingPlan] = useState<string | null>(null); // plan id or 'new'
 
   useEffect(() => {
     if (!user) return;
@@ -91,6 +225,7 @@ export default function AdminPortal() {
         if (data?.role === 'admin') {
           loadFees();
           loadUsers();
+          loadPlans();
         }
       });
   }, [user]);
@@ -121,6 +256,36 @@ export default function AdminPortal() {
       toast({ title: 'Fee updated' });
       await loadFees();
     }
+  };
+
+  const loadPlans = async () => {
+    const { data } = await supabase.from('subscription_plans').select('*').order('sort_order');
+    setPlans((data as SubscriptionPlan[]) ?? []);
+  };
+
+  const savePlan = async (id: string | null, data: Partial<SubscriptionPlan>) => {
+    if (id) {
+      const { error } = await supabase.from('subscription_plans').update(data).eq('id', id);
+      if (error) toast({ title: 'Error saving plan', variant: 'destructive' });
+      else toast({ title: 'Plan updated' });
+    } else {
+      const { error } = await supabase.from('subscription_plans').insert({ ...data, is_active: true });
+      if (error) toast({ title: 'Error creating plan', variant: 'destructive' });
+      else toast({ title: 'Plan created' });
+    }
+    setEditingPlan(null);
+    await loadPlans();
+  };
+
+  const togglePlanActive = async (plan: SubscriptionPlan) => {
+    await supabase.from('subscription_plans').update({ is_active: !plan.is_active }).eq('id', plan.id);
+    await loadPlans();
+  };
+
+  const assignUserPlan = async (userId: string, planId: string) => {
+    const { error } = await supabase.from('profiles').update({ subscription_plan_id: planId }).eq('id', userId);
+    if (error) toast({ title: 'Error assigning plan', variant: 'destructive' });
+    else { toast({ title: 'Plan assigned' }); await loadUsers(); }
   };
 
   const updateUserRole = async (userId: string, role: string) => {
@@ -161,6 +326,9 @@ export default function AdminPortal() {
           <TabsTrigger value="fees" className="flex items-center gap-1.5">
             <DollarSign className="h-3.5 w-3.5" /> Fee schedules
           </TabsTrigger>
+          <TabsTrigger value="subscriptions" className="flex items-center gap-1.5">
+            <CreditCard className="h-3.5 w-3.5" /> Subscriptions
+          </TabsTrigger>
           <TabsTrigger value="users" className="flex items-center gap-1.5">
             <Users className="h-3.5 w-3.5" /> Users
           </TabsTrigger>
@@ -199,6 +367,70 @@ export default function AdminPortal() {
           </Card>
         </TabsContent>
 
+        {/* Subscriptions */}
+        <TabsContent value="subscriptions" className="mt-5">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Subscription plans ({plans.length})</CardTitle>
+              <Button size="sm" className="bg-[#14314F] text-white h-7 px-3 text-xs" onClick={() => setEditingPlan('new')}>
+                <Plus className="w-3 h-3 mr-1" /> New plan
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editingPlan === 'new' && (
+                <PlanForm
+                  onSave={(data) => savePlan(null, data)}
+                  onCancel={() => setEditingPlan(null)}
+                />
+              )}
+              {plans.map((plan) => (
+                <div key={plan.id}>
+                  {editingPlan === plan.id ? (
+                    <PlanForm
+                      initial={plan}
+                      onSave={(data) => savePlan(plan.id, data)}
+                      onCancel={() => setEditingPlan(null)}
+                    />
+                  ) : (
+                    <div className="flex items-start justify-between rounded-xl border p-4">
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-[#14314F]">{plan.name}</p>
+                          <Badge className={plan.is_active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-400'}>
+                            {plan.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                          {plan.price_monthly === 0
+                            ? <Badge variant="outline">Free</Badge>
+                            : <Badge variant="outline">${plan.price_monthly}/mo</Badge>}
+                        </div>
+                        {plan.description && <p className="text-xs text-gray-500">{plan.description}</p>}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(plan.features).map(([k, v]) => (
+                            <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                              {k}: {typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-4 shrink-0">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingPlan(plan.id)}>
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => togglePlanActive(plan)}>
+                          {plan.is_active ? <X className="w-3 h-3 text-gray-400" /> : <Check className="w-3 h-3 text-green-500" />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {plans.length === 0 && editingPlan !== 'new' && (
+                <p className="text-sm text-gray-400 text-center py-4">No plans yet — create one above.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Users */}
         <TabsContent value="users" className="mt-5">
           <Card>
@@ -214,6 +446,16 @@ export default function AdminPortal() {
                       <p className="text-xs text-gray-500 font-mono">{u.id.slice(0, 16)}…</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <select
+                        className="text-xs border rounded px-2 py-1 text-gray-600 h-7"
+                        value={(u as any).subscription_plan_id ?? ''}
+                        onChange={(e) => assignUserPlan(u.id, e.target.value)}
+                      >
+                        <option value="">Free (default)</option>
+                        {plans.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
                       <Badge className={u.role === 'admin' ? 'bg-[#14314F] text-white' : 'bg-gray-100 text-gray-600'}>
                         {u.role}
                       </Badge>

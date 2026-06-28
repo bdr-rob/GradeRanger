@@ -7,11 +7,16 @@ import { resizeDataUrl } from '@/lib/imageUtils'
 
 declare const Dynamsoft: any
 
-interface Props {
-  onImage: (id: string, base64: string, preview: string) => void
+interface ScanResult {
+  front: { base64: string; preview: string }
+  back?: { base64: string; preview: string }
 }
 
-export default function DynamsoftScannerPanel({ onImage }: Props) {
+interface Props {
+  onScan: (result: ScanResult) => void
+}
+
+export default function DynamsoftScannerPanel({ onScan }: Props) {
   const [dwtReady, setDwtReady]       = useState(false)
   const [dwtLoading, setDwtLoading]   = useState(true)
   const [sources, setSources]         = useState<string[]>([])
@@ -23,6 +28,12 @@ export default function DynamsoftScannerPanel({ onImage }: Props) {
 
   useEffect(() => {
     setScanStatus('Connecting to scanner service…')
+    // Guard: Dynamsoft CDN script may not have loaded yet
+    if (typeof Dynamsoft === 'undefined' || !Dynamsoft?.DWT) {
+      setDwtLoading(false)
+      setScanStatus('Dynamsoft library not loaded — check your internet connection or scanner setup')
+      return
+    }
     Dynamsoft.DWT.CreateDWTObjectEx(
       { WebTwainId: 'GradeRangerBatchDWT' },
       (obj: any) => {
@@ -86,23 +97,22 @@ export default function DynamsoftScannerPanel({ onImage }: Props) {
       const imageCount: number = dwt.HowManyImagesInBuffer
 
       if (duplex && imageCount >= 2) {
-        // Both sides scanned — add front then back so pair mode picks them up
+        // Both sides — emit as a single paired scan
         const frontB64 = await getBase64(dwt, 0)
         const backB64  = await getBase64(dwt, 1)
-
         const frontResized = await resizeDataUrl(`data:image/jpeg;base64,${frontB64}`, 1200)
         const backResized  = await resizeDataUrl(`data:image/jpeg;base64,${backB64}`, 1200)
-
-        onImage(uuidv4(), frontResized.split(',')[1], frontResized)
-        onImage(uuidv4(), backResized.split(',')[1], backResized)
-
-        setScanStatus('Both sides scanned - ready for next card')
+        onScan({
+          front: { base64: frontResized.split(',')[1], preview: frontResized },
+          back:  { base64: backResized.split(',')[1],  preview: backResized  },
+        })
+        setScanStatus('Both sides scanned — ready for next card')
       } else {
-        // Single side only
+        // Single side
         const b64     = await getBase64(dwt, 0)
         const resized = await resizeDataUrl(`data:image/jpeg;base64,${b64}`, 1200)
-        onImage(uuidv4(), resized.split(',')[1], resized)
-        setScanStatus('Scan complete - ready for next')
+        onScan({ front: { base64: resized.split(',')[1], preview: resized } })
+        setScanStatus('Scan complete — ready for next')
       }
 
       dwt.RemoveAllImages()
@@ -111,7 +121,7 @@ export default function DynamsoftScannerPanel({ onImage }: Props) {
     } finally {
       setScanning(false)
     }
-  }, [selectedSource, scanning, duplex, onImage])
+  }, [selectedSource, scanning, duplex, onScan])
 
   if (dwtLoading) {
     return (

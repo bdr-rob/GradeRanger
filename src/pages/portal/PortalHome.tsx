@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+﻿import { useEffect, useState, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -22,6 +22,7 @@ import type { Card, Purchase, AIReport, MarketValuation, GradingBundle, GradingS
 import { GRADING_SERVICES, GRADING_SERVICE_TIERS } from '@/types/cards'
 import ConfirmGradeDialog from '@/components/portal/ConfirmGradeDialog'
 import LinkCardHedgerDialog from '@/components/portal/LinkCardHedgerDialog'
+import { useLightbox } from '@/contexts/LightboxContext'
 
 // Status a card can be moved to from the kanban
 const NEXT_STATUSES: Record<string, { label: string; status: string }[]> = {
@@ -50,7 +51,7 @@ interface CardRow extends Card {
   market_valuations?: MarketValuation
 }
 
-// ── Pipeline stage definitions ────────────────────────────────────────────────
+// â”€â”€ Pipeline stage definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STAGES = [
   {
@@ -103,7 +104,7 @@ const STAGES = [
   },
 ]
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
+// â”€â”€ Small helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function cardCost(c: CardRow): number {
   return (c as any).purchase_price ?? c.purchases?.cost_basis ?? 0
@@ -113,9 +114,21 @@ function cardValue(c: CardRow): number {
 }
 
 function CardThumb({ card, size = 'sm' }: { card: CardRow; size?: 'sm' | 'lg' }) {
+  const { open: openLightbox } = useLightbox()
   const url = (card as any).front_image_url ?? card.image_front_url ?? null
+  const backUrl = (card as any).back_image_url ?? card.image_back_url ?? null
   const dims = size === 'lg' ? 'w-24 h-32' : 'w-10 h-14'
-  if (url) return <img src={url} alt="" className={`${dims} object-contain rounded shrink-0 bg-gray-50`} />
+  if (url) return (
+    <img
+      src={url}
+      alt=""
+      className={`${dims} object-contain rounded shrink-0 bg-gray-50 cursor-pointer`}
+      onClick={(e) => {
+        e.stopPropagation()
+        openLightbox([{ src: url, alt: 'Front' }, ...(backUrl ? [{ src: backUrl, alt: 'Back' }] : [])])
+      }}
+    />
+  )
   return (
     <div className={`${dims} rounded bg-gray-100 flex items-center justify-center shrink-0`}>
       <Package className={`${size === 'lg' ? 'w-8 h-8' : 'w-4 h-4'} text-gray-300`} />
@@ -123,7 +136,7 @@ function CardThumb({ card, size = 'sm' }: { card: CardRow; size?: 'sm' | 'lg' })
   )
 }
 
-// ── Bundle picker (used inside CardModal when moving to grading) ───────────────
+// â”€â”€ Bundle picker (used inside CardModal when moving to grading) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type BundleStep = 'pick' | 'create'
 
@@ -172,7 +185,7 @@ function BundlePickerStep({
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => buildingBundles.length > 0 ? setStep('pick') : onBack()} className="text-xs text-gray-400 hover:text-gray-600">← Back</button>
+          <button onClick={() => buildingBundles.length > 0 ? setStep('pick') : onBack()} className="text-xs text-gray-400 hover:text-gray-600">â† Back</button>
           <p className="text-sm font-semibold text-gray-700">Create a new bundle</p>
         </div>
         <div className="space-y-2">
@@ -221,7 +234,7 @@ function BundlePickerStep({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <button onClick={onBack} className="text-xs text-gray-400 hover:text-gray-600">← Back</button>
+        <button onClick={onBack} className="text-xs text-gray-400 hover:text-gray-600">â† Back</button>
         <p className="text-sm font-semibold text-gray-700">Choose a grading bundle</p>
       </div>
       <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -237,7 +250,7 @@ function BundlePickerStep({
           >
             <div>
               <p className="font-medium text-gray-800">{b.name}</p>
-              <p className="text-xs text-gray-400">{b.grading_service} · {(b as any).service_tier}</p>
+              <p className="text-xs text-gray-400">{b.grading_service} Â· {(b as any).service_tier}</p>
             </div>
             <Badge className="bg-blue-100 text-blue-700 text-xs">Building</Badge>
           </button>
@@ -266,7 +279,7 @@ function BundlePickerStep({
   )
 }
 
-// ── Card quick-view modal ─────────────────────────────────────────────────────
+// â”€â”€ Card quick-view modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function CardModal({
   card,
@@ -327,7 +340,7 @@ function CardModal({
           <CardThumb card={card} size="lg" />
           <div className="flex-1 min-w-0 space-y-1.5">
             <p className="text-sm text-gray-500">
-              {[(card as any).set_name ?? (card as any).card_set, card.year].filter(Boolean).join(' · ')}
+              {[(card as any).set_name ?? (card as any).card_set, card.year].filter(Boolean).join(' Â· ')}
             </p>
             {(card as any).card_number && (
               <p className="text-xs text-gray-400">#{(card as any).card_number}</p>
@@ -350,7 +363,7 @@ function CardModal({
           </div>
         </div>
 
-        {/* Bundle picker step — shown when moving to grading */}
+        {/* Bundle picker step â€” shown when moving to grading */}
         {showBundlePicker ? (
           <div className="border-t pt-3">
             <BundlePickerStep
@@ -382,7 +395,7 @@ function CardModal({
               </div>
             )}
 
-            {/* Confirm Grade — shown for cards in grading status */}
+            {/* Confirm Grade â€” shown for cards in grading status */}
             {card.status === 'grading' && (
               <div className="pt-1 border-t">
                 <Button
@@ -467,7 +480,7 @@ function CardModal({
   )
 }
 
-// ── Kanban card ───────────────────────────────────────────────────────────────
+// â”€â”€ Kanban card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function KanbanCard({ card, onCardClick }: { card: CardRow; onCardClick: (card: CardRow) => void }) {
   const cost  = cardCost(card)
@@ -485,7 +498,7 @@ function KanbanCard({ card, onCardClick }: { card: CardRow; onCardClick: (card: 
           {card.player_name || card.card_name}
         </p>
         <p className="text-xs text-gray-400 truncate mt-0.5">
-          {[(card as any).set_name ?? (card as any).card_set, card.year].filter(Boolean).join(' · ')}
+          {[(card as any).set_name ?? (card as any).card_set, card.year].filter(Boolean).join(' Â· ')}
         </p>
         {value > 0 && <p className="text-xs font-medium text-gray-600 mt-1">${value.toFixed(2)}</p>}
         {cost > 0 && value > 0 && (
@@ -498,7 +511,7 @@ function KanbanCard({ card, onCardClick }: { card: CardRow; onCardClick: (card: 
   )
 }
 
-// ── Grading column — cards grouped by bundle, each group collapsible ──────────
+// â”€â”€ Grading column â€” cards grouped by bundle, each group collapsible â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface BundleGroup {
   bundle: GradingBundle | null
@@ -529,23 +542,57 @@ function GradingColumn({
       return next
     })
 
-  // Group cards by bundle
-  const bundleMap = Object.fromEntries(bundles.map((b) => [b.id, b]))
-  const groups: BundleGroup[] = []
+  // Group cards by bundle, then bucket bundles by their grading status
+  const BUNDLE_SECTIONS = [
+    { status: 'building',  label: 'Building',   dot: 'bg-blue-400' },
+    { status: 'submitted', label: 'Submitted',   dot: 'bg-amber-400' },
+    { status: 'at_grader', label: 'At Grader',   dot: 'bg-orange-400' },
+  ] as const
 
-  // Known bundles first (in bundle creation order)
-  const seenBundleIds = new Set<string>()
+  // Build per-bundle card groups
+  const allGroups: BundleGroup[] = []
   bundles.forEach((bundle) => {
     const bundleCards = cards.filter((c) => cardBundleMap[c.id] === bundle.id)
-    if (bundleCards.length > 0) {
-      groups.push({ bundle, cards: bundleCards })
-      seenBundleIds.add(bundle.id)
-    }
+    if (bundleCards.length > 0) allGroups.push({ bundle, cards: bundleCards })
   })
-
-  // Unbundled cards
   const unbundled = cards.filter((c) => !cardBundleMap[c.id])
-  if (unbundled.length > 0) groups.push({ bundle: null, cards: unbundled })
+
+  const renderBundle = (group: BundleGroup) => {
+    const key         = group.bundle?.id ?? '__unbundled__'
+    const isCollapsed = collapsed.has(key)
+
+    return (
+      <div key={key} className="rounded-lg border border-amber-200/60 bg-white/70 overflow-hidden">
+        <button
+          onClick={() => toggleCollapse(key)}
+          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-amber-50/50 transition-colors"
+        >
+          {isCollapsed
+            ? <ChevronRightIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          }
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-gray-700 truncate">
+              {group.bundle ? group.bundle.name : 'Unbundled'}
+            </p>
+            {group.bundle && (
+              <p className="text-[10px] text-gray-400">{group.bundle.grading_service} Â· {(group.bundle as any).service_tier}</p>
+            )}
+          </div>
+          <span className="text-[10px] font-bold text-gray-400 shrink-0">{group.cards.length}</span>
+        </button>
+        {!isCollapsed && (
+          <div className="px-2 pb-2 space-y-1.5">
+            {group.cards.map((card) => (
+              <KanbanCard key={card.id} card={card} onCardClick={onCardClick} />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const totalCards = cards.length
 
   return (
     <div
@@ -559,7 +606,7 @@ function GradingColumn({
         <span className="text-white">{stage.icon}</span>
         <span className="text-sm font-bold text-white tracking-wide flex-1">{stage.label}</span>
         <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white/25 text-white">
-          {cards.length}
+          {totalCards}
         </span>
       </div>
 
@@ -575,65 +622,55 @@ function GradingColumn({
           </Link>
         </div>
 
-        {/* Bundle groups */}
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 max-h-[calc(100vh-300px)]">
-          {groups.length === 0 && (
+        {/* Sections: Building / Submitted / At Grader */}
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4 max-h-[calc(100vh-300px)]">
+          {totalCards === 0 && (
             <p className="text-xs text-gray-400 text-center py-8 italic">No cards here yet</p>
           )}
 
-          {groups.map((group) => {
-            const key         = group.bundle?.id ?? '__unbundled__'
-            const isCollapsed = collapsed.has(key)
-            const statusLabel = group.bundle ? BUNDLE_STATUS_LABELS[group.bundle.status] : null
-            const statusColor = group.bundle ? BUNDLE_STATUS_COLORS[group.bundle.status] : null
-
+          {BUNDLE_SECTIONS.map(({ status, label, dot }) => {
+            const sectionGroups = allGroups.filter((g) => g.bundle?.status === status)
+            if (sectionGroups.length === 0) return null
+            const sectionCount = sectionGroups.reduce((n, g) => n + g.cards.length, 0)
             return (
-              <div key={key} className="rounded-lg border border-amber-200/60 bg-white/70 overflow-hidden">
-                {/* Bundle header — clickable to collapse */}
-                <button
-                  onClick={() => toggleCollapse(key)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-amber-50/50 transition-colors"
-                >
-                  {isCollapsed
-                    ? <ChevronRightIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                    : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                  }
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-700 truncate">
-                      {group.bundle ? group.bundle.name : 'Unbundled'}
-                    </p>
-                    {group.bundle && (
-                      <p className="text-[10px] text-gray-400">{group.bundle.grading_service} · {(group.bundle as any).service_tier}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {statusLabel && statusColor && (
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${statusColor}`}>
-                        {statusLabel}
-                      </span>
-                    )}
-                    <span className="text-[10px] font-bold text-gray-400">{group.cards.length}</span>
-                  </div>
-                </button>
-
-                {/* Cards in this bundle */}
-                {!isCollapsed && (
-                  <div className="px-2 pb-2 space-y-1.5">
-                    {group.cards.map((card) => (
-                      <KanbanCard key={card.id} card={card} onCardClick={onCardClick} />
-                    ))}
-                  </div>
-                )}
+              <div key={status}>
+                {/* Section divider */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</span>
+                  <span className="text-[10px] text-gray-400">{sectionCount}</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="space-y-2">
+                  {sectionGroups.map(renderBundle)}
+                </div>
               </div>
             )
           })}
+
+          {/* Unbundled cards (no section header needed) */}
+          {unbundled.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2 h-2 rounded-full shrink-0 bg-gray-300" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unbundled</span>
+                <span className="text-[10px] text-gray-400">{unbundled.length}</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <div className="space-y-1.5">
+                {unbundled.map((card) => (
+                  <KanbanCard key={card.id} card={card} onCardClick={onCardClick} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-// ── Standard kanban column ────────────────────────────────────────────────────
+// â”€â”€ Standard kanban column â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function KanbanColumn({
   stage,
@@ -698,7 +735,7 @@ function KanbanColumn({
   )
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+// â”€â”€ Stat card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function StatCard({ label, value, sub, icon, trend }: {
   label: string; value: string; sub?: string
@@ -722,7 +759,7 @@ function StatCard({ label, value, sub, icon, trend }: {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// â”€â”€ Main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function PortalHome() {
   const { user } = useAuth()
@@ -783,7 +820,7 @@ export default function PortalHome() {
       console.error('Status update failed:', error)
       toast({ title: 'Failed to update card status', description: error.message, variant: 'destructive' })
     }
-    // Always re-fetch to confirm DB state — don't rely solely on realtime
+    // Always re-fetch to confirm DB state â€” don't rely solely on realtime
     load()
   }, [load, toast])
 
@@ -835,7 +872,7 @@ export default function PortalHome() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-        Loading your pipeline…
+        Loading your pipelineâ€¦
       </div>
     )
   }
@@ -910,3 +947,4 @@ export default function PortalHome() {
     </div>
   )
 }
+

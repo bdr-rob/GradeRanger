@@ -71,13 +71,24 @@ function normalizeCertResponse(data: any) {
       price: parseFloat(p.price) || 0,
     }))
 
-  const mostRecent = prices[0]?.price ?? null
   const grade      = ci.grade ?? ''
   const setName    = card.set ?? ''
+  const gradeLabel = parseGradeValue(grade)
+
+  // Median of prices for this specific cert's grade (it's a graded slab)
+  const sameGradePrices = prices.filter((p) =>
+    !gradeLabel || p.grade.includes(gradeLabel) || p.grade === grade
+  )
+  const pool       = sameGradePrices.length >= 2 ? sameGradePrices : prices
+  const vals       = pool.map((p) => p.price).sort((a, b) => a - b)
+  const mid        = Math.floor(vals.length / 2)
+  const marketValue = vals.length === 0 ? null
+    : vals.length % 2 !== 0 ? vals[mid]
+    : (vals[mid - 1] + vals[mid]) / 2
 
   return {
     gradeCompany: (ci.grader ?? '').toUpperCase(),
-    gradeValue:   parseGradeValue(grade),
+    gradeValue:   gradeLabel,
     certNumber:   ci.cert   ?? '',
     player:       card.player ?? '',
     year:         extractYear(setName) || extractYear(ci.description ?? ''),
@@ -87,11 +98,21 @@ function normalizeCertResponse(data: any) {
     category:     card.category ?? '',
     cardHedgeId:  card.card_id  ?? '',
     cardImage:    card.image    ?? '',
-    marketValue:  mostRecent,
+    marketValue,
     recentSales:  prices,
     confidence:   data?.match_confidence ?? (ci.gemrate_id ? 1 : 0.5),
     description:  ci.description ?? card.description ?? '',
   }
+}
+
+function normalizePriceArray(raw: any[]): { date: string; grade: string; price: number }[] {
+  return (raw ?? [])
+    .map((p: any) => ({
+      date:  p.closing_date ?? p.date ?? '',
+      grade: p.Grade        ?? p.grade ?? '',
+      price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+    }))
+    .filter((p) => p.price > 0)
 }
 
 serve(async (req) => {
@@ -184,7 +205,7 @@ serve(async (req) => {
         })
         const data = await res.json()
         const card = data?.cards?.[0]
-        if (card) return respond({ card, prices: card.prices ?? [] })
+        if (card) return respond({ card, prices: normalizePriceArray(card.prices ?? []) })
       }
 
       // Otherwise AI-match from description
@@ -195,7 +216,7 @@ serve(async (req) => {
         body: JSON.stringify({ query, category }),
       })
       const data = await res.json()
-      return respond({ card: data?.card ?? null, prices: data?.card?.prices ?? [], confidence: data?.confidence ?? 0 })
+      return respond({ card: data?.card ?? null, prices: normalizePriceArray(data?.card?.prices ?? []), confidence: data?.confidence ?? 0 })
     }
 
     // ── Card search ──────────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react'
+﻿import { useState, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { RecognizedCard, ScannedImage } from '@/lib/ximilar'
 import { recognizeRawCardFromImage, getCardHedgeMarketPrice } from '@/lib/cardhedge'
 import { submitCardForAnalysis } from '@/lib/api/aiAnalysis'
+import { useLightbox } from '@/contexts/LightboxContext'
 import { convertTifToJpeg, isTifFile } from '@/lib/tifConverter'
 import { resizeDataUrl } from '@/lib/imageUtils'
 import DynamsoftScannerPanel from './DynamsoftScannerPanel'
@@ -14,11 +15,11 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
   Loader2, X, TrendingUp, Library, CheckSquare, Square,
-  AlertCircle, CheckCircle2,
+  AlertCircle, CheckCircle2, Sparkles,
 } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type ProcessState = 'idle' | 'identifying' | 'done' | 'error'
 
@@ -43,7 +44,7 @@ interface QueueItem {
   saved: boolean
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function processFile(file: File): Promise<{ base64: string; preview: string }> {
   let dataUrl: string
@@ -65,15 +66,16 @@ async function fetchMarketValue(params: {
   cardHedgeId?: string | null
   player: string; year: string; cardName: string; setName: string
 }): Promise<number | null> {
-  const { marketValue } = await getCardHedgeMarketPrice(
-    params.cardHedgeId
+  const { marketValue } = await getCardHedgeMarketPrice({
+    isGraded: false, // raw cards only in this scan queue
+    ...(params.cardHedgeId
       ? { cardHedgeId: params.cardHedgeId }
-      : { query: [params.year, params.player, params.cardName, params.setName].filter(Boolean).join(' ').trim() }
-  )
+      : { query: [params.year, params.player, params.cardName, params.setName].filter(Boolean).join(' ').trim() }),
+  })
   return marketValue
 }
 
-// ── Queue item card ───────────────────────────────────────────────────────────
+// â”€â”€ Queue item card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function QueueCard({
   item,
@@ -84,19 +86,34 @@ function QueueCard({
   onUpdate: (id: string, patch: Partial<QueueItem>) => void
   onRemove: (id: string) => void
 }) {
+  const { open: openLightbox } = useLightbox()
   const identifying = item.processState === 'identifying'
   const hasError = item.processState === 'error'
+
+  const cardImages = [
+    { src: item.image.preview, alt: 'Front' },
+    ...(item.image.backPreview ? [{ src: item.image.backPreview, alt: 'Back' }] : []),
+  ]
 
   return (
     <div className={`border rounded-lg overflow-hidden bg-white ${item.saved ? 'opacity-60' : ''}`}>
       <div className="flex gap-3 p-3">
-        {/* Thumbnail */}
-        <div className="shrink-0 w-16">
+        {/* Thumbnail(s) */}
+        <div className="shrink-0 flex gap-1">
           <img
             src={item.image.preview}
-            alt="Card"
-            className="w-16 aspect-[2/3] object-cover rounded"
+            alt="Front"
+            className="w-14 aspect-[2/3] object-cover rounded cursor-pointer"
+            onClick={() => openLightbox(cardImages, 0)}
           />
+          {item.image.backPreview && (
+            <img
+              src={item.image.backPreview}
+              alt="Back"
+              className="w-14 aspect-[2/3] object-cover rounded opacity-70 cursor-pointer"
+              onClick={() => openLightbox(cardImages, 1)}
+            />
+          )}
         </div>
 
         {/* Main content */}
@@ -104,7 +121,7 @@ function QueueCard({
           {identifying && (
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Identifying…
+              Identifyingâ€¦
             </div>
           )}
           {hasError && (
@@ -160,7 +177,7 @@ function QueueCard({
               {item.runMarketAnalysis && (
                 <div className="flex items-center gap-1.5 text-xs">
                   {item.marketLoading ? (
-                    <><Loader2 className="w-3 h-3 animate-spin text-gray-400" /><span className="text-gray-400">Fetching market value…</span></>
+                    <><Loader2 className="w-3 h-3 animate-spin text-gray-400" /><span className="text-gray-400">Fetching market valueâ€¦</span></>
                   ) : item.marketValue != null ? (
                     <><TrendingUp className="w-3 h-3 text-green-600" /><span className="font-semibold text-green-700">${item.marketValue.toFixed(2)} est. market</span></>
                   ) : (
@@ -210,7 +227,9 @@ function QueueCard({
   )
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const MAX_PREVIEW = 10
 
 interface Props {
   onDone: () => void
@@ -219,6 +238,7 @@ interface Props {
 
 export default function ContinuousScanQueue({ onDone, singleMode = false }: Props) {
   const { user } = useAuth()
+  const [previewQueue, setPreviewQueue] = useState<ScannedImage[]>([]) // staged before identification
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [processing, setProcessing] = useState(false)
   const [lastSaved, setLastSaved] = useState<QueueItem | null>(null) // single mode: show last result
@@ -231,11 +251,13 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
     setQueue((prev) => prev.filter((item) => item.localId !== id))
   }
 
-  // Called when a new image arrives (scanner or file drop) — immediately identify it
-  const handleImage = useCallback(async (base64: string, preview: string) => {
-    const localId = uuidv4()
-    const image: ScannedImage = { id: localId, base64, preview }
+  function removePreview(id: string) {
+    setPreviewQueue((prev) => prev.filter((img) => img.id !== id))
+  }
 
+  // Identify a single ScannedImage and add it to the processing queue
+  const identifyImage = useCallback(async (image: ScannedImage) => {
+    const localId = image.id
     const newItem: QueueItem = {
       localId,
       image,
@@ -252,14 +274,11 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
       marketLoading: false,
       saved: false,
     }
-
-    // In single mode, replace the queue rather than accumulate
-    setQueue(singleMode ? [newItem] : (prev) => [newItem, ...prev])
+    setQueue((prev) => singleMode ? [newItem] : [newItem, ...prev])
 
     try {
       const recognized = await recognizeRawCardFromImage(image)
       const m = recognized.bestMatch
-
       const updated: Partial<QueueItem> = {
         card: recognized,
         processState: 'done',
@@ -270,16 +289,11 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
         cardNumber: m?.card_number ?? '',
         marketValue: recognized.marketValue,
       }
-      setQueue((prev) => prev.map((item) =>
-        item.localId === localId ? { ...item, ...updated } : item
-      ))
+      setQueue((prev) => prev.map((item) => item.localId === localId ? { ...item, ...updated } : item))
 
-      // Auto-fetch market value via Card Hedger if we have enough card info
       const hasCardInfo = m?.player || m?.name || m?.set_name
       if (hasCardInfo) {
-        setQueue((prev) => prev.map((item) =>
-          item.localId === localId ? { ...item, marketLoading: true } : item
-        ))
+        setQueue((prev) => prev.map((item) => item.localId === localId ? { ...item, marketLoading: true } : item))
         const value = await fetchMarketValue({
           cardHedgeId: recognized.cardHedgeId,
           player:      m?.player   ?? '',
@@ -287,21 +301,47 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
           cardName:    m?.name     ?? '',
           setName:     m?.set_name ?? '',
         })
-        setQueue((prev) => prev.map((item) =>
-          item.localId === localId ? { ...item, marketValue: value, marketLoading: false } : item
-        ))
+        setQueue((prev) => prev.map((item) => item.localId === localId ? { ...item, marketValue: value, marketLoading: false } : item))
       }
     } catch (err: any) {
       setQueue((prev) => prev.map((item) =>
-        item.localId === localId
-          ? { ...item, processState: 'error', error: err.message }
-          : item
+        item.localId === localId ? { ...item, processState: 'error', error: err.message } : item
       ))
     }
-  }, [])
+  }, [singleMode])
 
-  const handleScannerImage = useCallback((_id: string, base64: string, preview: string) => {
-    handleImage(base64, preview)
+  // In single mode: identify immediately. In continuous mode: stage in preview first.
+  const handleImage = useCallback(async (
+    base64: string,
+    preview: string,
+    back?: { base64: string; preview: string }
+  ) => {
+    const localId = uuidv4()
+    const image: ScannedImage = {
+      id: localId, base64, preview,
+      backBase64:   back?.base64,
+      backPreview:  back?.preview,
+    }
+
+    if (singleMode) {
+      identifyImage(image)
+    } else {
+      setPreviewQueue((prev) => {
+        if (prev.length >= MAX_PREVIEW) return prev
+        return [...prev, image]
+      })
+    }
+  }, [singleMode, identifyImage])
+
+  // Identify all staged preview cards at once
+  const identifyAll = useCallback(() => {
+    const toIdentify = [...previewQueue]
+    setPreviewQueue([])
+    toIdentify.forEach((img) => identifyImage(img))
+  }, [previewQueue, identifyImage])
+
+  const handleScannerScan = useCallback((result: { front: { base64: string; preview: string }; back?: { base64: string; preview: string } }) => {
+    handleImage(result.front.base64, result.front.preview, result.back)
   }, [handleImage])
 
   const onDrop = useCallback(async (accepted: File[]) => {
@@ -318,7 +358,7 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
     noClick: false,
   })
 
-  // ── Bulk selection helpers ────────────────────────────────────────────────
+  // â”€â”€ Bulk selection helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const readyItems = queue.filter((i) => i.processState === 'done' && !i.saved)
   const allCollection = readyItems.every((i) => i.addToCollection)
@@ -338,7 +378,7 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
     ))
   }
 
-  // ── Process selected ─────────────────────────────────────────────────────
+  // â”€â”€ Process selected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async function processSelected() {
     if (!user) return
@@ -415,7 +455,7 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
   return (
     <div className="space-y-4">
       {/* Scanner + drop zone */}
-      <DynamsoftScannerPanel onImage={handleScannerImage} />
+      <DynamsoftScannerPanel onScan={handleScannerScan} />
 
       <div
         {...getRootProps()}
@@ -426,19 +466,81 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
         <input {...getInputProps()} />
         <p className="text-sm text-gray-500">
           {isDragActive
-            ? 'Drop image here…'
+            ? 'Drop image hereâ€¦'
             : singleMode
             ? 'Or drop a card image to identify it'
-            : 'Or drag & drop card images — each is identified immediately'}
+            : 'Or drag & drop card images â€” each is identified immediately'}
         </p>
       </div>
+
+      {/* â”€â”€ Scan preview queue (continuous mode) â”€â”€ */}
+      {!singleMode && previewQueue.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b">
+            <span className="text-sm font-medium text-gray-700">
+              {previewQueue.length} / {MAX_PREVIEW} cards staged
+            </span>
+            <div className="flex items-center gap-2">
+              {previewQueue.length < MAX_PREVIEW && (
+                <span className="text-xs text-gray-400">Scan more or identify now</span>
+              )}
+              <Button
+                size="sm"
+                onClick={identifyAll}
+                className="bg-[#14314F] hover:bg-[#0f2438] text-white h-7 text-xs px-3"
+              >
+                <Sparkles className="w-3 h-3 mr-1.5" />
+                Identify {previewQueue.length} card{previewQueue.length !== 1 ? 's' : ''} â†’
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-3 grid grid-cols-5 gap-2">
+            {previewQueue.map((img, idx) => {
+              const imgs = [{ src: img.preview, alt: 'Front' }, ...(img.backPreview ? [{ src: img.backPreview, alt: 'Back' }] : [])]
+              return (
+              <div key={img.id} className="relative group">
+                <p className="text-xs text-center text-gray-400 mb-1">#{idx + 1}</p>
+                <div className="flex gap-0.5">
+                  <img
+                    src={img.preview}
+                    alt="Front"
+                    className="flex-1 aspect-[2/3] object-cover rounded border border-gray-200 cursor-pointer"
+                    onClick={() => openLightbox(imgs, 0)}
+                  />
+                  {img.backPreview && (
+                    <img
+                      src={img.backPreview}
+                      alt="Back"
+                      className="flex-1 aspect-[2/3] object-cover rounded border border-gray-200 opacity-70 cursor-pointer"
+                      onClick={() => openLightbox(imgs, 1)}
+                    />
+                  )}
+                </div>
+                <button
+                  onClick={() => removePreview(img.id)}
+                  className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full hidden group-hover:flex items-center justify-center"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            )})}
+
+
+            {/* Empty slots up to MAX_PREVIEW */}
+            {Array.from({ length: MAX_PREVIEW - previewQueue.length }).map((_, i) => (
+              <div key={`empty-${i}`} className="aspect-[2/3] rounded border-2 border-dashed border-gray-100" />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Single mode: success flash */}
       {singleMode && lastSaved && (
         <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>
-            <strong>{lastSaved.playerName || lastSaved.cardName || 'Card'}</strong> saved — ready for next scan
+            <strong>{lastSaved.playerName || lastSaved.cardName || 'Card'}</strong> saved â€” ready for next scan
           </span>
         </div>
       )}
@@ -488,7 +590,7 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
                 className="flex-1 bg-[#14314F] hover:bg-[#0f2438] text-white"
               >
                 {processing
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processingâ€¦</>
                   : `Process ${toProcessCount} card${toProcessCount !== 1 ? 's' : ''}`
                 }
               </Button>
@@ -498,10 +600,11 @@ export default function ContinuousScanQueue({ onDone, singleMode = false }: Prop
             </div>
           )}
           {toProcessCount === 0 && queue.some((i) => i.saved) && (
-            <Button variant="outline" onClick={onDone} className="w-full">Done — go to collection</Button>
+            <Button variant="outline" onClick={onDone} className="w-full">Done â€” go to collection</Button>
           )}
         </div>
       )}
     </div>
   )
 }
+

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { RecognizedCard } from '@/lib/ximilar'
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { useLightbox } from '@/contexts/LightboxContext'
 import { PURCHASE_LOCATIONS } from '@/lib/purchaseLocations'
 
 interface CardState {
@@ -78,6 +79,7 @@ function initState(card: RecognizedCard): CardState {
 
 export default function CardReviewTable({ cards, onSaved }: Props) {
   const { user } = useAuth()
+  const { open: openLightbox } = useLightbox()
   const [cardStates, setCardStates] = useState<CardState[]>(() => cards.map(initState))
   const [saving, setSaving] = useState(false)
   const [backVisible, setBackVisible] = useState<boolean[]>(() => cards.map(() => false))
@@ -119,7 +121,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
             .upload(frontPath, frontBytes, { contentType: 'image/jpeg', upsert: true })
           if (uploadErr) {
             console.error('Front image upload failed:', uploadErr.message)
-            // Don't block the save — continue without image
+            // Don't block the save â€” continue without image
           } else {
             const { data } = supabase.storage.from('card-images').getPublicUrl(frontPath)
             frontUrl = data.publicUrl
@@ -197,7 +199,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
           return
         }
 
-        // Kick off Ximilar grading in the background — each card can take
+        // Kick off Ximilar grading in the background â€” each card can take
         // up to ~90s (the edge function polls Ximilar synchronously), so we
         // don't await this or it'd stall "Save N Cards" for minutes. The
         // card's AI Report tab picks up the resulting 'processing' row and
@@ -259,7 +261,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                 ) : (
                   <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
                     <AlertTriangle className="w-3 h-3 mr-1" />
-                    Not identified — fill in manually
+                    Not identified â€” fill in manually
                   </Badge>
                 )}
               </div>
@@ -270,7 +272,11 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                   <img
                     src={backVisible[i] && card.image.backPreview ? card.image.backPreview : card.image.preview}
                     alt={backVisible[i] ? 'Card back' : 'Card front'}
-                    className="w-24 h-32 object-cover rounded border"
+                    className="w-24 h-32 object-cover rounded border cursor-pointer"
+                    onClick={() => {
+                      const imgs = [{ src: card.image.preview, alt: 'Front' }, ...(card.image.backPreview ? [{ src: card.image.backPreview, alt: 'Back' }] : [])]
+                      openLightbox(imgs, backVisible[i] && card.image.backPreview ? 1 : 0)
+                    }}
                   />
                   {hasBack && (
                     <button
@@ -308,8 +314,8 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                             : 'text-red-500'
                         }`}>
                           {parseFloat(state.purchasePrice) <= marketValue
-                            ? `↓ $${(marketValue - parseFloat(state.purchasePrice)).toFixed(2)} below market`
-                            : `↑ $${(parseFloat(state.purchasePrice) - marketValue).toFixed(2)} above market`}
+                            ? `â†“ $${(marketValue - parseFloat(state.purchasePrice)).toFixed(2)} below market`
+                            : `â†‘ $${(parseFloat(state.purchasePrice) - marketValue).toFixed(2)} above market`}
                         </span>
                       )}
                     </div>
@@ -375,7 +381,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                   </div>
                 </div>
               </div>
-              {/* Read-only CardSight details — shown for review, not editable */}
+              {/* Read-only CardSight details â€” shown for review, not editable */}
               {([
                 ['Rarity', state.rarity],
                 ['Language', state.language],
@@ -384,7 +390,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                 ['Set Abbreviation', state.set_abbreviation],
                 ['Artist', state.artist],
                 ['HP', state.hp],
-                ['Pokédex #', state.pokedex_number],
+                ['PokÃ©dex #', state.pokedex_number],
                 ['Evolves From', state.evolves_from],
                 ['Release Name', state.release_name],
               ] as [string, string][]).some(([, val]) => val) && (
@@ -397,7 +403,7 @@ export default function CardReviewTable({ cards, onSaved }: Props) {
                     ['Set Abbreviation', state.set_abbreviation],
                     ['Artist', state.artist],
                     ['HP', state.hp],
-                    ['Pokédex #', state.pokedex_number],
+                    ['PokÃ©dex #', state.pokedex_number],
                     ['Evolves From', state.evolves_from],
                     ['Release Name', state.release_name],
                   ] as [string, string][])

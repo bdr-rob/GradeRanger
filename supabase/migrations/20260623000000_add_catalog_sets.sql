@@ -19,5 +19,10 @@ CREATE INDEX IF NOT EXISTS idx_catalog_sets_release_year ON catalog_sets(release
 CREATE INDEX IF NOT EXISTS idx_catalog_sets_name ON catalog_sets USING gin (to_tsvector('english', name || ' ' || coalesce(release_name, '')));
 
 ALTER TABLE catalog_sets ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anyone can read catalog_sets" ON catalog_sets
-  FOR SELECT USING (true);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'catalog_sets' AND policyname = 'Anyone can read catalog_sets'
+  ) THEN
+    CREATE POLICY "Anyone can read catalog_sets" ON catalog_sets FOR SELECT USING (true);
+  END IF;
+END $$;

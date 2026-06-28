@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+﻿import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
@@ -17,6 +17,7 @@ import DispositionSelector from '@/components/DispositionSelector';
 import PipelineProgress from '@/components/PipelineProgress';
 import GradingBundleManager from '@/components/GradingBundleManager';
 import { submitCardForAnalysis, pollAnalysisJob } from '@/lib/api/aiAnalysis';
+import { useLightbox } from '@/contexts/LightboxContext';
 import type { Card, AIReport, Purchase, MarketValuation, CardStatus } from '@/types/cards';
 import { STATUS_LABELS, STATUS_COLORS } from '@/types/cards';
 
@@ -25,7 +26,22 @@ const PURCHASE_LOCATIONS = [
   'Card Show', 'Facebook Marketplace', 'Facebook Group', 'Whatnot', 'Fanatics', 'Other',
 ]
 
-// Helper — handles column name differences between Card type and what we actually save
+// Helper â€” handles column name differences between Card type and what we actually save
+const BUNDLE_STATUS_LABELS: Record<string, string> = {
+  building:  'Building',
+  submitted: 'Submitted',
+  at_grader: 'At Grader',
+  returned:  'Returned',
+}
+
+function gradingStatusLabel(card: any): string {
+  if (card.status !== 'grading') return STATUS_LABELS[card.status as import('@/types/cards').CardStatus] ?? card.status
+  // Try to get the bundle status for a more accurate label
+  const items: any[] = card.grading_bundle_items ?? []
+  const bundleStatus = items[0]?.grading_bundles?.status
+  return BUNDLE_STATUS_LABELS[bundleStatus] ?? 'Grading'
+}
+
 function getField(card: any, ...keys: string[]): string {
   for (const key of keys) {
     if (card[key] != null && card[key] !== '') return card[key]
@@ -66,6 +82,7 @@ function toEditState(card: any): EditState {
 export default function CardDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const { open: openLightbox } = useLightbox();
   const [card, setCard]       = useState<Card | null>(null);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [valuation, setValuation] = useState<MarketValuation | null>(null);
@@ -81,7 +98,7 @@ export default function CardDetail() {
   const loadCard = useCallback(async () => {
     if (!id) return;
     const [cardRes, aiRes, valRes] = await Promise.all([
-      supabase.from('cards').select('*').eq('id', id).single(),
+      supabase.from('cards').select('*, grading_bundle_items(bundle_id, grading_bundles(status))').eq('id', id).single(),
       supabase.from('ai_reports').select('*').eq('card_id', id).order('created_at', { ascending: false }).limit(1).single(),
       supabase.from('market_valuations').select('*').eq('card_id', id).order('fetched_at', { ascending: false }).limit(1).single(),
     ]);
@@ -164,7 +181,7 @@ export default function CardDetail() {
     try {
       const backUrl = getField(card as any, 'image_back_url', 'back_image_url') || frontUrl;
       await submitCardForAnalysis(card!.id, frontUrl, backUrl);
-      toast({ title: 'Assessment running', description: 'AI is grading this card — results appear below in ~30s.' });
+      toast({ title: 'Assessment running', description: 'AI is grading this card â€” results appear below in ~30s.' });
       await loadCard();
     } catch {
       toast({ title: 'Could not start analysis', variant: 'destructive' });
@@ -181,7 +198,7 @@ export default function CardDetail() {
     return (
       <div className="flex items-center gap-3 py-16 justify-center">
         <Loader2 className="h-7 w-7 animate-spin text-[#47682d]" />
-        <span className="text-gray-500">Loading card…</span>
+        <span className="text-gray-500">Loading cardâ€¦</span>
       </div>
     );
   }
@@ -221,7 +238,7 @@ export default function CardDetail() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge className={STATUS_COLORS[card.status]}>{STATUS_LABELS[card.status]}</Badge>
+            <Badge className={STATUS_COLORS[card.status]}>{gradingStatusLabel(card)}</Badge>
             {!isEditing ? (
               <Button onClick={startEditing} variant="outline" size="sm" className="flex items-center gap-1">
                 <Pencil className="w-3 h-3" /> Edit
@@ -274,7 +291,7 @@ export default function CardDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Overview ───────────────────────────────────────────────────────── */}
+        {/* â”€â”€ Overview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <TabsContent value="overview" className="space-y-5 mt-5">
 
           {/* Card images */}
@@ -283,20 +300,36 @@ export default function CardDetail() {
               {frontUrl && (
                 <div className="flex-1">
                   <p className="text-xs text-gray-500 mb-1 font-medium">Front</p>
-                  <img src={frontUrl} alt="Card front" className="rounded-xl border max-h-64 object-contain w-full bg-gray-50" />
+                  <img
+                    src={frontUrl}
+                    alt="Card front"
+                    className="rounded-xl border max-h-64 object-contain w-full bg-gray-50 cursor-pointer"
+                    onClick={() => openLightbox(
+                      [{ src: frontUrl, alt: 'Front' }, ...(backUrl ? [{ src: backUrl, alt: 'Back' }] : [])],
+                      0
+                    )}
+                  />
                 </div>
               )}
               {backUrl && (
                 <div className="flex-1">
                   <p className="text-xs text-gray-500 mb-1 font-medium">Back</p>
-                  <img src={backUrl} alt="Card back" className="rounded-xl border max-h-64 object-contain w-full bg-gray-50" />
+                  <img
+                    src={backUrl}
+                    alt="Card back"
+                    className="rounded-xl border max-h-64 object-contain w-full bg-gray-50 cursor-pointer"
+                    onClick={() => openLightbox(
+                      [{ src: frontUrl, alt: 'Front' }, { src: backUrl, alt: 'Back' }],
+                      1
+                    )}
+                  />
                 </div>
               )}
             </div>
           )}
 
           {isEditing && editState ? (
-            /* ── EDIT MODE ─────────────────────────────────────────────────── */
+            /* â”€â”€ EDIT MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">Card details</h4>
@@ -341,7 +374,7 @@ export default function CardDetail() {
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Purchase Location</Label>
                     <Select value={editState.purchase_location} onValueChange={v => updateField('purchase_location', v)}>
                       <SelectTrigger className="mt-1 h-8 text-sm">
-                        <SelectValue placeholder="Select location…" />
+                        <SelectValue placeholder="Select locationâ€¦" />
                       </SelectTrigger>
                       <SelectContent>
                         {PURCHASE_LOCATIONS.map(loc => (
@@ -354,7 +387,7 @@ export default function CardDetail() {
               </div>
             </div>
           ) : (
-            /* ── READ MODE ─────────────────────────────────────────────────── */
+            /* â”€â”€ READ MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">Card details</h4>
@@ -418,10 +451,10 @@ export default function CardDetail() {
               </div>
             </div>
           )}
-                    {/* ── Rich Card Data ─────────────────────────────────────────────── */}
+                    {/* â”€â”€ Rich Card Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <div className="space-y-6">
 
-            {/* Card Attributes — shown as badges */}
+            {/* Card Attributes â€” shown as badges */}
             {c.attributes?.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Attributes</p>
@@ -449,7 +482,7 @@ export default function CardDetail() {
                 { label: 'Set Abbreviation', value: c.set_abbreviation },
                 { label: 'Artist',           value: c.artist },
                 { label: 'HP',               value: c.hp },
-                { label: 'Pokédex Number',   value: c.pokedex_number },
+                { label: 'PokÃ©dex Number',   value: c.pokedex_number },
                 { label: 'Evolves From',     value: c.evolves_from },
               ]
                 .filter(({ value }) => value)
@@ -484,7 +517,7 @@ export default function CardDetail() {
             </div>
         </TabsContent>
 
-        {/* ── AI Report ──────────────────────────────────────────────────────── */}
+        {/* â”€â”€ AI Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <TabsContent value="ai" className="mt-5">
           <AIReportViewer
             report={aiReport}
@@ -498,7 +531,7 @@ export default function CardDetail() {
           )}
         </TabsContent>
 
-        {/* ── Market ─────────────────────────────────────────────────────────── */}
+        {/* â”€â”€ Market â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <TabsContent value="market" className="mt-5">
           <MarketValuePanel
             card={c}
@@ -518,7 +551,7 @@ export default function CardDetail() {
           </div>
         </TabsContent>
 
-        {/* ── Disposition ────────────────────────────────────────────────────── */}
+        {/* â”€â”€ Disposition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <TabsContent value="disposition" className="mt-5">
           <DispositionSelector card={card} onStatusChange={handleStatusChange} />
           <div className="mt-4">
@@ -526,7 +559,7 @@ export default function CardDetail() {
           </div>
         </TabsContent>
 
-        {/* ── History ────────────────────────────────────────────────────────── */}
+        {/* â”€â”€ History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <TabsContent value="history" className="mt-5">
           <p className="text-sm text-gray-400">Activity history coming soon.</p>
         </TabsContent>

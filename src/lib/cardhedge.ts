@@ -126,19 +126,86 @@ export async function recognizeRawCardFromImage(image: ScannedImage): Promise<Re
   }
 }
 
+// ── Market value helpers ──────────────────────────────────────────────────────
+
+const GRADER_PATTERN = /\b(PSA|BGS|CGC|SGC|CSG|HGA|GAI|BCCG)\b/i
+const RAW_PATTERN    = /\b(raw|ungraded|unslabbed)\b/i
+
+/** True if a grade string looks like a graded slab (PSA 10, BGS 9.5, etc.) */
+function isGradedSale(grade: string): boolean {
+  return GRADER_PATTERN.test(grade) && !RAW_PATTERN.test(grade)
+}
+
+/** Median of a sorted numeric array */
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * Compute a robust market value from a price history array.
+ *
+ * Strategy:
+ *  1. Prefer sales from the last 90 days; fall back to all-time if <3 results.
+ *  2. Filter by grade type: raw cards exclude graded-slab sales; graded cards
+ *     optionally filter to a matching grade label.
+ *  3. Trimmed median (drop top+bottom 10%) to eliminate outliers.
+ */
+export function computeMarketValue(
+  prices: CardHedgePrice[],
+  opts: { isGraded?: boolean; gradeLabel?: string } = {},
+): number | null {
+  if (prices.length === 0) return null
+
+  const { isGraded = false, gradeLabel } = opts
+
+  // Step 1: grade filtering
+  let filtered: CardHedgePrice[]
+  if (isGraded && gradeLabel) {
+    // Try to match same grade tier (e.g. "PSA 10")
+    const same = prices.filter((p) => p.grade.toLowerCase().includes(gradeLabel.toLowerCase()))
+    filtered = same.length >= 2 ? same : prices
+  } else if (!isGraded) {
+    // Raw cards: exclude graded-slab sales
+    const rawOnly = prices.filter((p) => !isGradedSale(p.grade))
+    filtered = rawOnly.length >= 2 ? rawOnly : prices
+  } else {
+    filtered = prices
+  }
+
+  // Step 2: 90-day window preference
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 90)
+  const recent = filtered.filter((p) => !p.date || new Date(p.date) >= cutoff)
+  const pool   = recent.length >= 3 ? recent : filtered
+
+  if (pool.length === 0) return null
+
+  // Step 3: trimmed median
+  const vals   = pool.map((p) => p.price).sort((a, b) => a - b)
+  const trim   = Math.max(0, Math.floor(vals.length * 0.1))
+  const trimmed = trim > 0 ? vals.slice(trim, vals.length - trim) : vals
+  return median(trimmed.length > 0 ? trimmed : vals)
+}
+
 /** Get market pricing for an already-identified card */
 export async function getCardHedgeMarketPrice(params: {
   cardHedgeId?: string
   query?: string
   category?: string
+  isGraded?: boolean
+  gradeLabel?: string
 }): Promise<{ prices: CardHedgePrice[]; marketValue: number | null }> {
-  const { data, error } = await invokeCardHedge({ mode: 'market', ...params })
+  const { isGraded, gradeLabel, ...invokeParams } = params
+  const { data, error } = await invokeCardHedge({ mode: 'market', ...invokeParams })
   if (error || data?.error) return { prices: [], marketValue: null }
   const prices: CardHedgePrice[] = (data?.prices ?? []).map((p: any) => ({
     date:  p.date  ?? '',
     grade: p.grade ?? '',
     price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
-  }))
-  const marketValue = prices[0]?.price ?? null
+  })).filter((p: CardHedgePrice) => p.price > 0)
+  const marketValue = computeMarketValue(prices, { isGraded, gradeLabel })
   return { prices, marketValue }
 }

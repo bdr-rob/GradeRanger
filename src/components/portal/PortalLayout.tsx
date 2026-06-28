@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -28,12 +28,6 @@ const PIPELINE_STAGES: PipelineStage[] = [
     end:        true,
   },
   {
-    key:        'intake',
-    label:      'Scan',
-    icon:       <ScanLine className="w-4 h-4 shrink-0" />,
-    to:         '/portal/intake',
-  },
-  {
     key:        'grading',
     label:      'Grading',
     icon:       <Award className="w-4 h-4 shrink-0" />,
@@ -47,7 +41,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
   },
   {
     key:        'collection',
-    label:      'Collection',
+    label:      'Portfolio',
     icon:       <Package className="w-4 h-4 shrink-0" />,
     to:         '/portal/portfolio',
   },
@@ -68,35 +62,6 @@ export default function PortalLayout() {
   const location = useLocation();
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Card counts per status (for pipeline badge)
-  const [counts, setCounts] = useState<Record<string, number>>({});
-
-  const loadCounts = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('cards')
-      .select('status')
-      .eq('user_id', user.id);
-    if (!data) return;
-    const c: Record<string, number> = {};
-    data.forEach((row) => { c[row.status] = (c[row.status] ?? 0) + 1; });
-    setCounts(c);
-  }, [user]);
-
-  useEffect(() => { loadCounts(); }, [loadCounts]);
-
-  // Re-fetch counts on card changes (lightweight real-time)
-  useEffect(() => {
-    if (!user) return;
-    const ch = supabase.channel('layout-counts')
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'cards',
-        filter: `user_id=eq.${user.id}`,
-      }, loadCounts)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [user, loadCounts]);
-
   useEffect(() => {
     if (!user) return;
     supabase
@@ -111,10 +76,6 @@ export default function PortalLayout() {
     await signOut();
     navigate('/');
   };
-
-  function stageCount(key: string): number {
-    return counts[key] ?? 0;
-  }
 
   // Is a given pipeline stage "active" in the current location?
   function isPipelineActive(stage: PipelineStage): boolean {
@@ -155,9 +116,7 @@ export default function PortalLayout() {
 
           {PIPELINE_STAGES.map((stage) => {
             const active = isPipelineActive(stage);
-            const count = stage.key !== 'intake' && stage.key !== 'pipeline' && stage.key !== 'collection'
-              ? stageCount(stage.key)
-              : null;
+            const count = null;
 
             return (
               <NavLink

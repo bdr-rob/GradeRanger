@@ -8,6 +8,8 @@ import TermsOfService from './pages/TermsOfService';
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { LightboxProvider } from "@/contexts/LightboxContext"
+import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
 
 
 // Public pages
@@ -48,10 +50,12 @@ const App = () => (
   <ThemeProvider defaultTheme="light">
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <LightboxProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
+            <SubscriptionProvider>
             <Routes>
               {/* Public */}
               <Route path="/" element={<Index />} />
@@ -93,6 +97,7 @@ const App = () => (
                 <Route path="listings/new" element={<ListingNew />} />
                 <Route path="ebay/callback" element={<EbayCallback />} />
                 <Route path="portfolio" element={<PortalPortfolio />} />
+                <Route path="settings" element={<Settings />} />
                 <Route path="admin" element={<Admin />} />
                 
               </Route>
@@ -100,8 +105,10 @@ const App = () => (
               {/* 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </SubscriptionProvider>
           </AuthProvider>
         </BrowserRouter>
+        </LightboxProvider>
       </TooltipProvider>
     </QueryClientProvider>
   </ThemeProvider>

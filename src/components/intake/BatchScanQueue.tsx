@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+﻿import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { v4 as uuidv4 } from 'uuid'
 import { Upload, X, Sparkles, ToggleLeft, ToggleRight, ArrowLeftRight } from 'lucide-react'
@@ -7,6 +7,7 @@ import { ScannedImage } from '@/lib/ximilar'
 import { convertTifToJpeg, isTifFile } from '@/lib/tifConverter'
 import { resizeDataUrl } from '@/lib/imageUtils'
 import DynamsoftScannerPanel from './DynamsoftScannerPanel'
+import { useLightbox } from '@/contexts/LightboxContext'
 
 interface RawImage {
   id: string
@@ -41,12 +42,21 @@ async function processFile(file: File): Promise<{ base64: string; preview: strin
 }
 
 export default function BatchScanQueue({ onIdentify, loading }: Props) {
+  const { open: openLightbox } = useLightbox()
   const [images, setImages] = useState<RawImage[]>([])
   const [pairMode, setPairMode] = useState(true)
   const [converting, setConverting] = useState(false)
 
-  const handleScannerImage = useCallback((id: string, base64: string, preview: string) => {
-    setImages((prev) => [...prev, { id, base64, preview }])
+  const handleScannerImage = useCallback((result: { front: { base64: string; preview: string }; back?: { base64: string; preview: string } }) => {
+    const id = crypto.randomUUID()
+    // Front always becomes one image; back (if present) becomes a second image in the batch
+    setImages((prev) => {
+      const next = [...prev, { id, base64: result.front.base64, preview: result.front.preview }]
+      if (result.back) {
+        next.push({ id: crypto.randomUUID(), base64: result.back.base64, preview: result.back.preview })
+      }
+      return next
+    })
   }, [])
 
   const onDrop = useCallback(async (accepted: File[]) => {
@@ -124,7 +134,9 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
       pairs.push(images.slice(i, i + 2))
     }
 
-    return pairs.map((pair, pairIdx) => (
+    return pairs.map((pair, pairIdx) => {
+      const pairImgs = pair.map((img, i) => ({ src: img.preview, alt: i === 0 ? 'Front' : 'Back' }))
+      return (
       <div key={pair[0].id} className="border rounded-lg p-3 bg-gray-50">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-semibold text-[#14314F]">Card #{pairIdx + 1}</span>
@@ -147,7 +159,8 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
                 <img
                   src={img.preview}
                   alt={isBack ? 'Back' : 'Front'}
-                  className="w-full aspect-[2/3] object-cover rounded border-2 border-transparent group-hover:border-gray-300"
+                  className="w-full aspect-[2/3] object-cover rounded border-2 border-transparent group-hover:border-gray-300 cursor-pointer"
+                  onClick={() => openLightbox(pairImgs, slotIdx)}
                 />
                 <div className={`absolute top-1 left-1 text-white text-xs font-semibold px-1.5 py-0.5 rounded ${
                   isBack ? 'bg-gray-600' : 'bg-[#14314F]'
@@ -170,16 +183,16 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
           )}
         </div>
       </div>
-    ))
+    )})
   }
 
   return (
     <div className="space-y-4">
 
-      {/* ── Scanner Panel ── sits above the drop zone, feeds the same queue */}
-      <DynamsoftScannerPanel onImage={handleScannerImage} />
+      {/* â”€â”€ Scanner Panel â”€â”€ sits above the drop zone, feeds the same queue */}
+      <DynamsoftScannerPanel onScan={handleScannerImage} />
 
-      {/* ── Drop zone ── */}
+      {/* â”€â”€ Drop zone â”€â”€ */}
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
@@ -198,7 +211,7 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
             : 'Drag & drop card images, or click to select'}
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          JPG, PNG, WEBP, TIF — multiple files supported
+          JPG, PNG, WEBP, TIF â€” multiple files supported
         </p>
       </div>
 
@@ -213,7 +226,7 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
               <p className="text-sm font-medium text-gray-800">Front/Back pair mode</p>
               <p className="text-xs text-muted-foreground">
                 {pairMode
-                  ? `${cardCount} card${cardCount !== 1 ? 's' : ''} — first image = front, second = back. Use "Swap" to correct order.`
+                  ? `${cardCount} card${cardCount !== 1 ? 's' : ''} â€” first image = front, second = back. Use "Swap" to correct order.`
                   : 'Each image = separate card front'}
               </p>
             </div>
@@ -232,7 +245,8 @@ export default function BatchScanQueue({ onIdentify, loading }: Props) {
                   <img
                     src={img.preview}
                     alt={`Card ${idx + 1}`}
-                    className="w-full aspect-[2/3] object-cover rounded border-2 border-transparent group-hover:border-gray-300"
+                    className="w-full aspect-[2/3] object-cover rounded border-2 border-transparent group-hover:border-gray-300 cursor-pointer"
+                    onClick={() => openLightbox({ src: img.preview, alt: `Card ${idx + 1}` })}
                   />
                   <button
                     onClick={() => remove(img.id)}
