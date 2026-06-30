@@ -3,9 +3,9 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import {
-  ScanLine, Award, Tag,
+  Award, Tag,
   LogOut, Shield, Microscope, Settings,
-  Package, LayoutDashboard,
+  Package, LayoutDashboard, BookOpen,
 } from 'lucide-react';
 
 // ── Pipeline stages in the sidebar ───────────────────────────────────────────
@@ -51,7 +51,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
 
 const TOOL_ITEMS = [
   { to: '/portal/research', label: 'Research', icon: <Microscope className="w-4 h-4 shrink-0" /> },
-  { to: '/portal/settings', label: 'Settings',  icon: <Settings   className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/catalog',  label: 'Catalog',  icon: <BookOpen   className="w-4 h-4 shrink-0" /> },
+  { to: '/portal/settings', label: 'Settings', icon: <Settings   className="w-4 h-4 shrink-0" /> },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────

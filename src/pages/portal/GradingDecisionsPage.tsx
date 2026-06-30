@@ -17,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Loader2, Package, ChevronRight, Check, Truck, Award,
   Download, Plus, Search, X, ArrowRight, Upload, RefreshCw,
+  MapPin, ChevronDown, ExternalLink,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ConfirmGradeDialog from '@/components/portal/ConfirmGradeDialog';
@@ -258,6 +259,9 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
   );
   const [fetchingGrade, setFetchingGrade] = useState<Record<string, boolean>>({});
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
+  const [trackingData, setTrackingData] = useState<null | { status: string; carrier: string | null; estimatedDelivery: string | null; events: { timestamp: string; status: string; description: string; location: string | null }[] }>(null);
+  const [trackingOpen, setTrackingOpen] = useState(false);
+  const [fetchingTracking, setFetchingTracking] = useState(false);
   const [confirmGradeCardId, setConfirmGradeCardId] = useState<string | null>(null);
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
     Object.fromEntries(bundle.items.map((i) => [i.id, String(i.quantity ?? 1)]))
@@ -311,6 +315,32 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
     if (error) toast({ title: 'Error saving', variant: 'destructive' });
     else toast({ title: 'Saved' });
     setSavingTracking(false);
+  };
+
+  const fetchTracking = async () => {
+    if (!tracking.trim()) {
+      toast({ title: 'Enter a tracking number first', variant: 'destructive' });
+      return;
+    }
+    setFetchingTracking(true);
+    setTrackingOpen(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('track-shipment', {
+        body: { trackingNumber: tracking.trim() },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error === 'no_integrations') {
+        toast({ title: 'No integrations configured', description: data.message, variant: 'destructive' });
+        setTrackingOpen(false);
+        return;
+      }
+      setTrackingData(data);
+    } catch (err) {
+      toast({ title: 'Could not fetch tracking', description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
+      setTrackingOpen(false);
+    } finally {
+      setFetchingTracking(false);
+    }
   };
 
   const saveCert = async (itemId: string) => {
@@ -488,11 +518,72 @@ function BundleDetail({ bundle, onUpdate }: { bundle: BundleWithItems; onUpdate:
             <Label className="text-xs">Order / submission #</Label>
             <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="e.g. PSA-12345678" className="h-8 text-sm" />
           </div>
-          <Button size="sm" variant="outline" onClick={saveTracking} disabled={savingTracking}>
-            {savingTracking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={saveTracking} disabled={savingTracking}>
+              {savingTracking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
+            </Button>
+            {tracking.trim() && (
+              <Button size="sm" variant="outline" onClick={fetchTracking} disabled={fetchingTracking} title="Look up tracking history">
+                {fetchingTracking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Truck className="h-3.5 w-3.5 mr-1" />Track</>}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Tracking timeline */}
+      {trackingOpen && trackingData && (
+        <div className="rounded-lg border bg-white">
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[#14314F] hover:bg-gray-50"
+            onClick={() => setTrackingOpen((o) => !o)}
+          >
+            <span className="flex items-center gap-2">
+              <Truck className="h-4 w-4" />
+              {trackingData.carrier ? trackingData.carrier.toUpperCase() + ' — ' : ''}
+              <span className={
+                trackingData.status === 'delivered' ? 'text-green-600' :
+                trackingData.status === 'in_transit' ? 'text-blue-600' :
+                trackingData.status === 'out_for_delivery' ? 'text-amber-600' : 'text-gray-600'
+              }>
+                {trackingData.status.replace(/_/g, ' ')}
+              </span>
+              {trackingData.estimatedDelivery && (
+                <span className="text-xs text-gray-400 font-normal">
+                  (Est. {new Date(trackingData.estimatedDelivery).toLocaleDateString()})
+                </span>
+              )}
+            </span>
+            <ChevronDown className="h-4 w-4 text-gray-400" />
+          </button>
+
+          {trackingData.events.length > 0 && (
+            <div className="border-t px-4 py-3 space-y-0">
+              {trackingData.events.map((evt, i) => (
+                <div key={i} className="flex gap-3 pb-3 last:pb-0">
+                  <div className="flex flex-col items-center gap-0">
+                    <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${i === 0 ? 'bg-[#14314F]' : 'bg-gray-300'}`} />
+                    {i < trackingData.events.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
+                  </div>
+                  <div className="pb-3 last:pb-0">
+                    <p className="text-sm font-medium text-gray-800">{evt.description}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {evt.location && (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <MapPin className="h-3 w-3" />{evt.location}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">
+                        {new Date(evt.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Submission form */}
       <div>
