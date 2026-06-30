@@ -1,0 +1,40 @@
+name: Weekly price snapshot
+
+# Runs every Sunday at 05:00 UTC.
+# For each graded card in users' collections (with a cardhedge_card_id):
+#   1. Backfills full price history (2020 → today) if not yet stored
+#   2. Takes a fresh FMV snapshot stored in ch_fmv_snapshots
+# Over time ch_fmv_snapshots builds a true year-over-year FMV history
+# that extends beyond Card Hedger's 90-day window.
+
+on:
+  schedule:
+    - cron: '0 5 * * 0' # Sundays 05:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run price snapshot
+        env:
+          SB_URL: https://bgufxqivlxlfebayydcl.supabase.co
+          SB_ANON_KEY: ${{ secrets.SB_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          echo "Starting weekly price snapshot..."
+
+          curl -sS -X POST "$SB_URL/functions/v1/price-snapshot" \
+            -H "apikey: $SB_ANON_KEY" \
+            -H "Authorization: Bearer $SB_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' | tee /tmp/response.json
+
+          if jq -e '.error' /tmp/response.json > /dev/null 2>&1; then
+            echo "Function returned an error"
+            exit 1
+          fi
+
+          echo "Snapshot complete"
+          jq '{date: .date, summary: .summary}' /tmp/response.json

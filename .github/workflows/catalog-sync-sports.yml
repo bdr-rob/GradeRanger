@@ -1,0 +1,58 @@
+name: Sports catalog sync
+
+# Syncs sports card set metadata from Card Hedger into ch_sets.
+# Pulls the top 100 most-active sets per category each week — new releases
+# naturally surface as their sales volume grows.
+#
+# Default: sync_sets only (fast, weekly). Use workflow_dispatch to run
+# sync_all (includes card checklists) or target a single category.
+
+on:
+  schedule:
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC (1 hour after TCG sync)
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'sync_sets | sync_all'
+        required: false
+        default: 'sync_sets'
+      category:
+        description: 'Limit to one category (e.g. Baseball). Leave blank for all.'
+        required: false
+        default: ''
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync sports card sets from Card Hedger
+        env:
+          SB_URL: https://bgufxqivlxlfebayydcl.supabase.co
+          SB_ANON_KEY: ${{ secrets.SB_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          ACTION="${{ github.event.inputs.action || 'sync_sets' }}"
+          CATEGORY="${{ github.event.inputs.category || '' }}"
+
+          BODY="{\"action\":\"$ACTION\""
+          if [ -n "$CATEGORY" ]; then
+            BODY="$BODY,\"category\":\"$CATEGORY\""
+          fi
+          BODY="$BODY}"
+
+          echo "Calling ch-catalog with: $BODY"
+
+          curl -sS -X POST "$SB_URL/functions/v1/ch-catalog" \
+            -H "apikey: $SB_ANON_KEY" \
+            -H "Authorization: Bearer $SB_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" | tee /tmp/response.json
+
+          if jq -e '.error' /tmp/response.json > /dev/null 2>&1; then
+            echo "Function returned an error"
+            exit 1
+          fi
+
+          echo "Sync complete"
+          jq '.summary' /tmp/response.json
