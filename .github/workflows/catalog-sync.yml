@@ -1,57 +1,66 @@
 name: Catalog sync
 
-# Keeps the local CardSight catalog cache (catalog_sets, catalog_manufacturers,
-# catalog_releases, catalog_attributes, catalog_fields, release_cards_cache)
-# fresh on a schedule, instead of relying on someone clicking "Sync from
-# CardSight" in the Catalog page. CardSight's catalog endpoints are tightly
-# rate-limited, so each sync action is called in a loop, paginating via
-# start_skip/start_offset, until the function reports done: true.
+# Syncs TCG set metadata and card checklists from TCG API (api.tcgapi.dev)
+# into tcg_sets and tcg_cards tables for offline browsing.
+#
+# Weekly run (Mondays 06:00 UTC):
+#   - sync_sets: refresh set metadata for all 6 games (fast)
+#   - sync_cards: fill in card checklists for any sets missing them
+#
+# The edge function is idempotent — sets/cards already synced are upserted,
+# and card sync is skipped for sets that already have cards_synced_at set.
 
 on:
   schedule:
     - cron: '0 6 * * 1' # Mondays 06:00 UTC
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'sync_sets | sync_cards | sync_all'
+        required: false
+        default: 'sync_all'
+      game:
+        description: 'Limit to one game slug (e.g. pokemon). Leave blank for all.'
+        required: false
+        default: ''
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Run paginated catalog syncs
+      - name: Sync TCG catalog
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
-          FN_URL="$SUPABASE_URL/functions/v1/cardsight-catalog"
 
-          call() {
-            curl -sS -X POST "$FN_URL" \
-              -H "apikey: $SUPABASE_ANON_KEY" \
-              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$1"
-          }
+          ACTION="${{ github.event.inputs.action || 'sync_all' }}"
+          GAME="${{ github.event.inputs.game || '' }}"
 
-          # Bulk syncs — paginate via start_skip until done:true
-          for action in sync_sets sync_manufacturers sync_releases sync_attributes sync_fields; do
-            echo "== $action =="
-            skip=0
-            while :; do
-              resp=$(call "{\"action\":\"$action\",\"start_skip\":$skip}")
-              echo "$resp"
-              done=$(echo "$resp" | jq -r '.done // false')
-              if [ "$done" = "true" ]; then break; fi
-              skip=$(echo "$resp" | jq -r '.nextSkip')
-            done
-          done
+          BODY="{\"action\":\"$ACTION\""
+          if [ -n "$GAME" ]; then
+            BODY="$BODY,\"game\":\"$GAME\""
+          fi
+          BODY="$BODY}"
 
-          # Refresh previously-viewed checklists — paginate via start_offset
-          echo "== refresh_checklists =="
-          offset=0
-          while :; do
-            resp=$(call "{\"action\":\"refresh_checklists\",\"start_offset\":$offset}")
-            echo "$resp"
-            done=$(echo "$resp" | jq -r '.done // false')
-            if [ "$done" = "true" ]; then break; fi
-            offset=$(echo "$resp" | jq -r '.nextOffset')
-          done
+          echo "Calling tcg-catalog with: $BODY"
+
+          HTTP_STATUS=$(curl -sS -o /tmp/response.json -w "%{http_code}" \
+            -X POST "$SUPABASE_URL/functions/v1/tcg-catalog" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+
+          echo "HTTP status: $HTTP_STATUS"
+          echo "Response:"
+          cat /tmp/response.json
+
+          if jq -e '.error' /tmp/response.json > /dev/null 2>&1; then
+            echo "Function returned an error: $(jq -r '.error' /tmp/response.json)"
+            exit 1
+          fi
+
+          echo "Sync complete"
+          jq '.summary' /tmp/response.json
